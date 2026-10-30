@@ -11,9 +11,28 @@ import { SettingsView } from './components/SettingsView';
 import type { BusinessProfile, LeadQualification } from './types';
 import { api } from './api';
 
-const routeToTab: Record<string, string> = { '/': 'overview', '/overview': 'overview', '/profile': 'profile', '/discovery': 'discovery', '/leads': 'leads', '/reply-studio': 'reply_studio', '/analytics': 'analytics', '/settings': 'settings' };
-const tabToRoute: Record<string, string> = Object.fromEntries(Object.entries(routeToTab).map(([route, tab]) => [tab, route]));
-const currentLocation = () => { const path = window.location.pathname.replace(/\/$/, '') || '/'; return { tab: routeToTab[path] || 'overview', leadId: new URLSearchParams(window.location.search).get('lead') || undefined }; };
+const routeToTab: Record<string, string> = {
+  '/': 'overview',
+  '/overview': 'overview',
+  '/profile': 'profile',
+  '/discovery': 'discovery',
+  '/leads': 'leads',
+  '/reply-studio': 'reply_studio',
+  '/analytics': 'analytics',
+  '/settings': 'settings',
+};
+
+const tabToRoute: Record<string, string> = Object.fromEntries(
+  Object.entries(routeToTab).map(([route, tab]) => [tab, route])
+);
+
+const currentLocation = () => {
+  const path = window.location.pathname.replace(/\/$/, '') || '/';
+  return {
+    tab: routeToTab[path] || 'overview',
+    leadId: new URLSearchParams(window.location.search).get('lead') || undefined,
+  };
+};
 
 export const App: React.FC = () => {
   const initial = currentLocation();
@@ -28,32 +47,146 @@ export const App: React.FC = () => {
 
   const refreshData = async () => {
     setLoading(true);
-    try { const [prof, leadList, counts, settingsData] = await Promise.all([api.getProfile(), api.listLeads({ limit: 25, offset: 0 }), api.getLeadCounts(), api.getSettings()]); setProfile(prof); setLeads(leadList); setLeadCounts(counts); setEmergencyStop(settingsData.posting_settings?.emergency_stop || false); }
-    catch (error) { setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Could not load workspace data.' }); }
-    finally { setLoading(false); }
+    try {
+      const [prof, leadList, counts, settingsData] = await Promise.all([
+        api.getProfile(),
+        api.listLeads({ limit: 25, offset: 0 }),
+        api.getLeadCounts(),
+        api.getSettings(),
+      ]);
+      setProfile(prof);
+      setLeads(leadList);
+      setLeadCounts(counts);
+      setEmergencyStop(settingsData.posting_settings?.emergency_stop || false);
+    } catch (error) {
+      setNotice({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Could not load workspace data.',
+      });
+    } finally {
+      setLoading(false);
+    }
   };
-  useEffect(() => { void refreshData(); }, []);
-  useEffect(() => { const onPopState = () => { const next = currentLocation(); setCurrentTab(next.tab); setReplyStudioLeadId(next.leadId); }; window.addEventListener('popstate', onPopState); return () => window.removeEventListener('popstate', onPopState); }, []);
 
-  const handleNavigate = (tab: string, leadId?: string) => { const route = tabToRoute[tab] || '/'; const url = new URL(window.location.href); url.pathname = route; if (leadId) url.searchParams.set('lead', leadId); else url.searchParams.delete('lead'); window.history.pushState({}, '', url); setCurrentTab(tab); setReplyStudioLeadId(leadId); };
-  const pageTitles: Record<string, string> = { overview: 'Overview', profile: 'Business Profile', discovery: 'Discovery Engine', leads: 'Leads Inbox', reply_studio: 'Reply Studio', analytics: 'Customer Insights', settings: 'Settings & Safety' };
+  useEffect(() => {
+    void refreshData();
+  }, []);
 
-  return <div className="app-container">
-    <Sidebar currentTab={currentTab} onSelectTab={handleNavigate} leadCounts={leadCounts} emergencyStop={emergencyStop} />
-    <main className="main-content">
-      <header className="topbar"><div className="breadcrumb"><span>AgentReach</span><span className="breadcrumb-separator">/</span><strong>{pageTitles[currentTab]}</strong>{profile && <span className="workspace-chip">{profile.name}</span>}</div><div className="topbar-status"><span className={`status-dot ${emergencyStop ? 'status-dot-red' : 'status-dot-green'}`} />{emergencyStop ? 'Publishing stopped' : 'Workspace ready'}</div></header>
-      {notice && <div className={`toast toast-${notice.type}`} role={notice.type === 'error' ? 'alert' : 'status'}><span>{notice.type === 'error' ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}</span><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="Dismiss notification"><X size={15} /></button></div>}
-      {loading ? <div className="loading-state"><LoaderCircle className="spin" size={22} /><span>Loading your discovery workspace…</span></div> : <div className="view-scroll">
-        {currentTab === 'overview' && <OverviewView profile={profile} leads={leads} leadCounts={leadCounts} onNavigate={handleNavigate} onLaunchCampaign={() => handleNavigate('discovery')} />}
-        {currentTab === 'profile' && <ProfileView profile={profile} onProfileUpdated={(updated) => { setProfile(updated); void refreshData(); }} />}
-        {currentTab === 'discovery' && <DiscoveryView profile={profile} onCampaignFinished={refreshData} />}
-        {currentTab === 'leads' && <LeadsView leads={leads} onOpenReplyStudio={(id) => handleNavigate('reply_studio', id)} />}
-        {currentTab === 'reply_studio' && <ReplyStudioView initialLeadId={replyStudioLeadId} leads={leads} />}
-        {currentTab === 'analytics' && <AnalyticsView />}
-        {currentTab === 'settings' && <SettingsView />}
-      </div>}
-    </main>
-  </div>;
+  useEffect(() => {
+    const onPopState = () => {
+      const next = currentLocation();
+      setCurrentTab(next.tab);
+      setReplyStudioLeadId(next.leadId);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  const handleNavigate = (tab: string, leadId?: string) => {
+    const route = tabToRoute[tab] || '/';
+    const url = new URL(window.location.href);
+    url.pathname = route;
+    if (leadId) url.searchParams.set('lead', leadId);
+    else url.searchParams.delete('lead');
+    window.history.pushState({}, '', url);
+    setCurrentTab(tab);
+    setReplyStudioLeadId(leadId);
+  };
+
+  const pageTitles: Record<string, string> = {
+    overview: 'Overview',
+    profile: 'Business Profile',
+    discovery: 'Discovery Engine',
+    leads: 'Leads Inbox',
+    reply_studio: 'Reply Studio',
+    analytics: 'Customer Insights',
+    settings: 'Settings & Safety',
+  };
+
+  return (
+    <div className="app-container">
+      <a href="#main-content" className="skip-link">Skip to main content</a>
+      <Sidebar
+        currentTab={currentTab}
+        onSelectTab={handleNavigate}
+        leadCounts={leadCounts}
+        emergencyStop={emergencyStop}
+      />
+      <main id="main-content" className="main-content">
+        <header className="topbar">
+          <div className="breadcrumb">
+            <span>AgentReach</span>
+            <span className="breadcrumb-separator">/</span>
+            <strong>{pageTitles[currentTab]}</strong>
+            {profile && <span className="workspace-chip">{profile.name}</span>}
+          </div>
+          <div className="topbar-status">
+            <span className={`status-dot ${emergencyStop ? 'status-dot-red' : 'status-dot-green'}`} />
+            <span>{emergencyStop ? 'Emergency stop active' : 'Workspace ready'}</span>
+          </div>
+        </header>
+
+        {notice && (
+          <div
+            className={`toast toast-${notice.type}`}
+            role={notice.type === 'error' ? 'alert' : 'status'}
+          >
+            <span>{notice.type === 'error' ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}</span>
+            <span>{notice.message}</span>
+            <button onClick={() => setNotice(null)} aria-label="Dismiss notification">
+              <X size={15} />
+            </button>
+          </div>
+        )}
+
+        {loading ? (
+          <div className="loading-state">
+            <LoaderCircle className="spin" size={24} />
+            <span>Loading workspace intelligence…</span>
+          </div>
+        ) : (
+          <div className="view-scroll">
+            {currentTab === 'overview' && (
+              <OverviewView
+                profile={profile}
+                leads={leads}
+                leadCounts={leadCounts}
+                onNavigate={handleNavigate}
+                onLaunchCampaign={() => handleNavigate('discovery')}
+              />
+            )}
+            {currentTab === 'profile' && (
+              <ProfileView
+                profile={profile}
+                onProfileUpdated={(updated) => {
+                  setProfile(updated);
+                  void refreshData();
+                }}
+              />
+            )}
+            {currentTab === 'discovery' && (
+              <DiscoveryView profile={profile} onCampaignFinished={refreshData} />
+            )}
+            {currentTab === 'leads' && (
+              <LeadsView
+                leads={leads}
+                onOpenReplyStudio={(id) => handleNavigate('reply_studio', id)}
+              />
+            )}
+            {currentTab === 'reply_studio' && (
+              <ReplyStudioView
+                initialLeadId={replyStudioLeadId}
+                leads={leads}
+                onNavigateToDiscovery={() => handleNavigate('discovery')}
+              />
+            )}
+            {currentTab === 'analytics' && <AnalyticsView />}
+            {currentTab === 'settings' && <SettingsView />}
+          </div>
+        )}
+      </main>
+    </div>
+  );
 };
 
 export default App;

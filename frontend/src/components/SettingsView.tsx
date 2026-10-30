@@ -6,6 +6,7 @@ import {
   Sliders,
   Cpu,
   Share2,
+  CheckCircle2,
 } from 'lucide-react';
 import type { PostingSettings } from '../types';
 import { api } from '../api';
@@ -27,10 +28,7 @@ export const SettingsView: React.FC = () => {
 
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    loadSettings();
-  }, []);
+  const [saving, setSaving] = useState(false);
 
   const loadSettings = async () => {
     try {
@@ -42,8 +40,13 @@ export const SettingsView: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    void loadSettings();
+  }, []);
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSaving(true);
     try {
       await api.updateSettings({
         posting_settings: postingSettings,
@@ -54,157 +57,241 @@ export const SettingsView: React.FC = () => {
       setTimeout(() => setSavedMessage(null), 3000);
     } catch (err: any) {
       setErrorMessage(`Save error: ${err.message}`);
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
-    <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '1000px' }}>
-      <div>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>Platform Settings & Safety Guardrails</h2>
-        <div style={{ fontSize: '0.8125rem', color: '#64748b' }}>
-          Configure AI model providers, safety rate limits, community whitelists, and publishing automation.
+    <div className="page-shell">
+      <div className="page-heading">
+        <div>
+          <div className="eyebrow">
+            <Sliders size={13} /> Guardrails & Engine Configuration
+          </div>
+          <h1>Settings & Safety Controls</h1>
+          <p>
+            Configure LLM providers, community whitelists, rate limits, and publishing safety mechanisms.
+          </p>
         </div>
       </div>
 
       {savedMessage && (
-        <div style={{ padding: '0.75rem 1rem', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: 'var(--radius)', fontSize: '0.8125rem', fontWeight: 500 }}>
-          {savedMessage}
+        <div className="notice notice-info" role="status">
+          <CheckCircle2 size={16} />
+          <span>{savedMessage}</span>
         </div>
       )}
-      {errorMessage && <div className="notice notice-error" role="alert"><span>{errorMessage}</span><button className="btn btn-secondary btn-sm" onClick={() => setErrorMessage(null)}>Dismiss</button></div>}
+      {errorMessage && (
+        <div className="notice notice-error" role="alert">
+          <span>{errorMessage}</span>
+          <button className="btn btn-secondary btn-sm" onClick={() => setErrorMessage(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
-      <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-6)' }}>
         {/* Emergency Stop Switch */}
-        <div
+        <section
           className="card"
           style={{
-            background: postingSettings.emergency_stop ? '#fef2f2' : '#ffffff',
-            borderColor: postingSettings.emergency_stop ? '#fecaca' : 'var(--card-border)',
+            padding: 'var(--sp-5)',
+            background: postingSettings.emergency_stop ? 'var(--danger-bg)' : 'var(--surface)',
+            borderColor: postingSettings.emergency_stop ? 'var(--danger-border)' : 'var(--border)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            gap: 'var(--sp-4)',
+            flexWrap: 'wrap',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <ShieldAlert size={24} color={postingSettings.emergency_stop ? '#dc2626' : '#64748b'} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
+            <ShieldAlert size={28} color={postingSettings.emergency_stop ? 'var(--danger)' : 'var(--text-subtle)'} />
             <div>
-              <div style={{ fontWeight: 700, color: postingSettings.emergency_stop ? '#991b1b' : '#0f172a' }}>
+              <div
+                style={{
+                  fontWeight: 700,
+                  fontSize: 'var(--fs-base)',
+                  color: postingSettings.emergency_stop ? 'var(--danger-text)' : 'var(--text-main)',
+                }}
+              >
                 Master Emergency Stop
               </div>
-              <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                Instantly blocks and halts all community interactions, publishing, and automated actions.
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: '2px' }}>
+                Instantly halts and locks all community discovery, reply drafting, and posting automation.
               </div>
             </div>
           </div>
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 600 }}>
+          <label
+            htmlFor="emergency-stop-toggle"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--sp-2)',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: 'var(--fs-sm)',
+            }}
+          >
             <input
+              id="emergency-stop-toggle"
               type="checkbox"
               checked={postingSettings.emergency_stop}
               onChange={(e) => setPostingSettings({ ...postingSettings, emergency_stop: e.target.checked })}
-              style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+              style={{ width: '20px', height: '20px', cursor: 'pointer' }}
             />
-            <span style={{ color: postingSettings.emergency_stop ? '#dc2626' : '#475569' }}>
-              {postingSettings.emergency_stop ? 'EMERGENCY STOP ON' : 'Normal Operation'}
+            <span style={{ color: postingSettings.emergency_stop ? 'var(--danger-text)' : 'var(--text-main)' }}>
+              {postingSettings.emergency_stop ? 'STOP ACTIVE (BLOCKED)' : 'Normal Active Operation'}
             </span>
           </label>
-        </div>
+        </section>
 
         {/* AI Provider Configuration */}
-        <div className="card">
-          <div style={{ fontWeight: 700, fontSize: '0.9375rem', color: '#0f172a', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Cpu size={16} /> AI Model Configuration
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <div className="eyebrow eyebrow-muted">
+                <Cpu size={13} /> Intelligence Backend
+              </div>
+              <h2>AI Model Provider</h2>
+              <p>Select which LLM powers business understanding extraction and personalized reply drafts.</p>
+            </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', marginBottom: '1rem' }}>
-            <div>
-              <label className="label">LLM Provider</label>
+          <div className="form-grid-2" style={{ marginBottom: 'var(--sp-4)' }}>
+            <div className="form-group">
+              <label htmlFor="settings-llm-provider" className="label">
+                LLM Provider
+              </label>
               <select
+                id="settings-llm-provider"
                 className="select"
                 value={llmSettings.provider}
                 onChange={(e) => setLlmSettings({ ...llmSettings, provider: e.target.value })}
               >
                 <option value="mock">Local Heuristic Engine (Mock / Zero-Cost)</option>
                 <option value="openai">OpenAI (GPT-4o)</option>
-                <option value="gemini">Google Gemini (Gemini 1.5/2.0 Flash)</option>
+                <option value="gemini">Google Gemini (Gemini 2.0 Flash)</option>
                 <option value="groq">Groq (Llama 3.3 70B)</option>
                 <option value="anthropic">Anthropic (Claude 3.5 Sonnet)</option>
               </select>
             </div>
 
-            <div>
-              <label className="label">Model Identifier</label>
+            <div className="form-group">
+              <label htmlFor="settings-llm-model" className="label">
+                Model Identifier
+              </label>
               <input
+                id="settings-llm-model"
                 type="text"
                 className="input"
-                placeholder="e.g. gpt-4o or gemini-1.5-flash"
+                placeholder="e.g. gpt-4o or gemini-2.0-flash"
                 value={llmSettings.model || ''}
                 onChange={(e) => setLlmSettings({ ...llmSettings, model: e.target.value })}
               />
             </div>
           </div>
 
-          <div>
-            <label className="label">API Key (Stored locally in SQLite/env, never exposed)</label>
+          <div className="form-group">
+            <label htmlFor="settings-llm-key" className="label">
+              API Key (Stored locally in SQLite/env, never shared)
+            </label>
             <input
+              id="settings-llm-key"
               type="password"
               className="input"
-              placeholder={llmSettings.provider === 'mock' ? 'Not required for local heuristic mock' : 'Enter API key...'}
+              placeholder={
+                llmSettings.provider === 'mock'
+                  ? 'Not required for local heuristic mock'
+                  : 'Enter API key…'
+              }
               value={llmSettings.api_key || ''}
               onChange={(e) => setLlmSettings({ ...llmSettings, api_key: e.target.value })}
               disabled={llmSettings.provider === 'mock'}
             />
           </div>
-        </div>
+        </section>
 
         {/* Publishing Safety & Whitelisting */}
-        <div className="card">
-          <div style={{ fontWeight: 700, fontSize: '0.9375rem', color: '#0f172a', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Sliders size={16} /> Publishing Controls & Rate Limiting
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <div className="eyebrow eyebrow-muted">
+                <Sliders size={13} /> Rate Limits & Guardrails
+              </div>
+              <h2>Publishing Controls & Safety Rules</h2>
+              <p>Enforce strict community boundaries and rate limiting to maintain account standing.</p>
+            </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1rem' }}>
-            <div>
-              <label className="label">Publishing Mode</label>
+          <div className="form-grid-3" style={{ marginBottom: 'var(--sp-4)' }}>
+            <div className="form-group">
+              <label htmlFor="settings-post-mode" className="label">
+                Publishing Mode
+              </label>
               <select
+                id="settings-post-mode"
                 className="select"
                 value={postingSettings.mode}
-                onChange={(e) => setPostingSettings({ ...postingSettings, mode: e.target.value as any })}
+                onChange={(e) =>
+                  setPostingSettings({ ...postingSettings, mode: e.target.value as any })
+                }
               >
-                <option value="draft">Draft Mode Only (Safe Storage)</option>
+                <option value="draft">Draft Mode Only (Read-Only Review)</option>
                 <option value="manual">Manual Approval (Recommended Default)</option>
                 <option value="automatic">Controlled Automatic Posting</option>
               </select>
             </div>
 
-            <div>
-              <label className="label">Max Posts Per Day</label>
+            <div className="form-group">
+              <label htmlFor="settings-daily-limit" className="label">
+                Daily Posting Limit
+              </label>
               <input
+                id="settings-daily-limit"
                 type="number"
                 className="input"
                 min={1}
                 max={50}
                 value={postingSettings.daily_limit}
-                onChange={(e) => setPostingSettings({ ...postingSettings, daily_limit: parseInt(e.target.value) || 5 })}
+                onChange={(e) =>
+                  setPostingSettings({
+                    ...postingSettings,
+                    daily_limit: parseInt(e.target.value) || 5,
+                  })
+                }
               />
             </div>
 
-            <div>
-              <label className="label">Minimum Interval (Seconds)</label>
+            <div className="form-group">
+              <label htmlFor="settings-min-interval" className="label">
+                Minimum Interval (Seconds)
+              </label>
               <input
+                id="settings-min-interval"
                 type="number"
                 className="input"
                 min={60}
                 step={60}
                 value={postingSettings.min_interval_seconds}
-                onChange={(e) => setPostingSettings({ ...postingSettings, min_interval_seconds: parseInt(e.target.value) || 600 })}
+                onChange={(e) =>
+                  setPostingSettings({
+                    ...postingSettings,
+                    min_interval_seconds: parseInt(e.target.value) || 600,
+                  })
+                }
               />
             </div>
           </div>
 
-          <div>
-            <label className="label">Allowed Communities Whitelist (Comma-separated)</label>
+          <div className="form-group">
+            <label htmlFor="settings-allowed-communities" className="label">
+              Allowed Communities Whitelist (Comma-separated)
+            </label>
             <input
+              id="settings-allowed-communities"
               type="text"
               className="input"
               placeholder="r/startups, r/SaaS, r/Entrepreneur, r/programming"
@@ -212,39 +299,48 @@ export const SettingsView: React.FC = () => {
               onChange={(e) =>
                 setPostingSettings({
                   ...postingSettings,
-                  allowed_communities: e.target.value.split(',').map((x) => x.trim()).filter(Boolean),
+                  allowed_communities: e.target.value
+                    .split(',')
+                    .map((x) => x.trim())
+                    .filter(Boolean),
                 })
               }
             />
-            <div style={{ fontSize: '0.6875rem', color: '#64748b', marginTop: '0.25rem' }}>
-              The agent will refuse to post or interact in any community not explicitly listed here.
+            <div className="helper-text" style={{ marginTop: '4px' }}>
+              The agent strictly refuses to discover or post in any community not explicitly listed here.
             </div>
           </div>
-        </div>
+        </section>
 
         {/* Lead Export & Backup */}
-        <div className="card">
-          <div style={{ fontWeight: 700, fontSize: '0.9375rem', color: '#0f172a', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Share2 size={16} /> Data Export & CRM Sync
-          </div>
-          <div style={{ fontSize: '0.8125rem', color: '#64748b', marginBottom: '1rem' }}>
-            Download discovered leads, conversation URLs, and qualification scores for CRM or spreadsheet import.
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <div className="eyebrow eyebrow-muted">
+                <Share2 size={13} /> Data Portability
+              </div>
+              <h2>Data Export & CRM Sync</h2>
+              <p>Download discovered leads, qualification scores, and discussion URLs for CRM import.</p>
+            </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
             <a href={api.getExportUrl('csv', 0)} className="btn btn-secondary" download>
-              <Download size={14} /> Export Leads (CSV)
+              <Download size={14} />
+              <span>Export Leads (CSV)</span>
             </a>
             <a href={api.getExportUrl('json', 0)} className="btn btn-secondary" download>
-              <Download size={14} /> Export Full Leads (JSON)
+              <Download size={14} />
+              <span>Export Full Intelligence (JSON)</span>
             </a>
           </div>
-        </div>
+        </section>
 
-        {/* Save button */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button type="submit" className="btn btn-primary">
-            <Save size={16} /> Save Settings
+        {/* Form Submission */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'var(--sp-2)' }}>
+          <button type="submit" className="btn btn-primary" disabled={saving}>
+            <Save size={16} />
+            <span>{saving ? 'Saving Changes…' : 'Save Platform Settings'}</span>
           </button>
         </div>
       </form>

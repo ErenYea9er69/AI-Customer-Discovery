@@ -8,6 +8,7 @@ import {
   Sparkles,
   Save,
   ShieldCheck,
+  Building2,
 } from 'lucide-react';
 import type { BusinessProfile } from '../types';
 import { api } from '../api';
@@ -40,7 +41,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
     try {
       const extracted = await api.extractFromUrl(urlInput.trim());
       onProfileUpdated(extracted);
-      setFeedback('Profile extracted. Review the facts before confirming it.');
+      setFeedback('Profile extracted from website. Review the facts before confirming.');
     } catch (err: any) {
       setFeedback(`Extraction failed: ${err.message}`);
     } finally {
@@ -55,7 +56,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
     try {
       const extracted = await api.extractFromManual(nameInput.trim(), descInput.trim());
       onProfileUpdated(extracted);
-      setFeedback('Profile analyzed. Review the facts before confirming it.');
+      setFeedback('Profile synthesized from description. Review the facts before confirming.');
     } catch (err: any) {
       setFeedback(`Analysis failed: ${err.message}`);
     } finally {
@@ -78,83 +79,105 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
     try {
       const confirmed = await api.confirmProfile();
       onProfileUpdated(confirmed);
-      setFeedback('Business profile confirmed. You can now launch discovery.');
+      setFeedback('Business profile confirmed. You can now launch discovery campaigns.');
     } catch (err: any) {
       setFeedback(`Confirmation failed: ${err.message}`);
     }
   };
 
   return (
-    <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '1200px' }}>
-      {feedback && <div className={`notice ${feedback.includes('failed') || feedback.includes('Failed') ? 'notice-error' : 'notice-info'}`} role="status"><span>{feedback}</span><button className="btn btn-secondary btn-sm" onClick={() => setFeedback(null)}>Dismiss</button></div>}
+    <div className="page-shell">
+      <div className="page-heading">
+        <div>
+          <div className="eyebrow">
+            <Building2 size={13} /> Audience & Value Modeling
+          </div>
+          <h1>Business Profile & ICP</h1>
+          <p>
+            Extract your value proposition, customer pain points, and ideal customer profile from your website or product description.
+          </p>
+        </div>
+      </div>
+
+      {feedback && (
+        <div
+          className={`notice ${feedback.toLowerCase().includes('fail') || feedback.toLowerCase().includes('error') ? 'notice-error' : 'notice-info'}`}
+          role="status"
+        >
+          <span>{feedback}</span>
+          <button className="btn btn-secondary btn-sm" onClick={() => setFeedback(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Top Banner / Onboarding Section */}
-      <div className="card" style={{ padding: '1.25rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+      <section className="panel" style={{ marginBottom: 'var(--sp-6)' }}>
+        <div className="panel-header">
           <div>
-            <div style={{ fontWeight: 700, fontSize: '1.125rem', color: '#0f172a' }}>
-              Business Understanding & ICP Modeling
-            </div>
-            <div style={{ fontSize: '0.8125rem', color: '#64748b' }}>
-              Extract problems solved, ideal customer profile, and buying signals directly from your website or product description.
-            </div>
+            <h2>Extract or Update Business Understanding</h2>
+            <p>Provide your live website URL or write a product overview to auto-discover customer pain patterns.</p>
           </div>
 
           {/* Toggle URL vs Manual */}
-          <div style={{ display: 'flex', background: '#f1f5f9', padding: '0.25rem', borderRadius: 'var(--radius)' }}>
+          <div className="version-toggle-bar" style={{ alignSelf: 'center' }}>
             <button
-              className="btn btn-sm"
-              style={{
-                background: activeInputMode === 'url' ? '#ffffff' : 'transparent',
-                boxShadow: activeInputMode === 'url' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
-                color: activeInputMode === 'url' ? 'var(--primary)' : '#64748b',
-              }}
+              type="button"
+              className={`version-tab ${activeInputMode === 'url' ? 'active' : ''}`}
               onClick={() => setActiveInputMode('url')}
             >
-              <Globe size={14} /> Website URL
+              <Globe size={13} style={{ display: 'inline', marginRight: '4px' }} />
+              Website URL
             </button>
             <button
-              className="btn btn-sm"
-              style={{
-                background: activeInputMode === 'manual' ? '#ffffff' : 'transparent',
-                boxShadow: activeInputMode === 'manual' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
-                color: activeInputMode === 'manual' ? 'var(--primary)' : '#64748b',
-              }}
+              type="button"
+              className={`version-tab ${activeInputMode === 'manual' ? 'active' : ''}`}
               onClick={() => setActiveInputMode('manual')}
             >
-              <FileText size={14} /> Manual Description
+              <FileText size={13} style={{ display: 'inline', marginRight: '4px' }} />
+              Manual Description
             </button>
           </div>
         </div>
 
         {activeInputMode === 'url' ? (
-          <form onSubmit={handleExtractUrl} style={{ display: 'flex', gap: '0.5rem' }}>
-            <input
-              type="text"
-              className="input"
-              placeholder="https://yourcompany.com (crawls homepage, /pricing, /features, /faq)"
-              value={urlInput}
-              onChange={(e) => setUrlInput(e.target.value)}
-              disabled={loading}
-              required
-            />
+          <form onSubmit={handleExtractUrl} style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: '280px' }}>
+              <input
+                id="profile-url-input"
+                aria-label="Website URL"
+                type="url"
+                className="input"
+                placeholder="https://yourproduct.com (crawls features, pricing, and FAQ)"
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
+                disabled={loading}
+                required
+              />
+            </div>
             <button type="submit" className="btn btn-primary" disabled={loading}>
-              <Sparkles size={16} /> {loading ? 'Analyzing Pages...' : 'Analyze Website'}
+              <Sparkles size={16} />
+              <span>{loading ? 'Analyzing Pages…' : 'Analyze Website'}</span>
             </button>
           </form>
         ) : (
-          <form onSubmit={handleExtractManual} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <form onSubmit={handleExtractManual} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
             <input
+              id="profile-manual-name"
+              aria-label="Product or Service Name"
               type="text"
               className="input"
-              placeholder="Product or Service Name (optional)"
+              placeholder="Product or Service Name"
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
               disabled={loading}
             />
             <textarea
+              id="profile-manual-desc"
+              aria-label="Product or Service Description"
               className="textarea"
               rows={3}
-              placeholder="Describe what your product does, who it is for, the main problems it solves, pricing, and main competitors..."
+              placeholder="Describe what your product does, problems it solves, target users, and key differentiators…"
               value={descInput}
               onChange={(e) => setDescInput(e.target.value)}
               disabled={loading}
@@ -162,240 +185,350 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button type="submit" className="btn btn-primary" disabled={loading}>
-                <Sparkles size={16} /> {loading ? 'Extracting ICP...' : 'Extract Business Profile'}
+                <Sparkles size={16} />
+                <span>{loading ? 'Extracting ICP…' : 'Extract Business Profile'}</span>
               </button>
             </div>
           </form>
         )}
-      </div>
+      </section>
 
       {/* Confirmation & Status Bar if Profile exists */}
       {profile && (
-        <div
+        <section
           className="card"
           style={{
-            background: profile.confirmed ? '#ecfdf5' : '#fffbeb',
-            borderColor: profile.confirmed ? '#a7f3d0' : '#fde68a',
-            padding: '1rem',
+            padding: 'var(--sp-4) var(--sp-5)',
+            marginBottom: 'var(--sp-6)',
+            background: profile.confirmed ? 'var(--success-bg)' : 'var(--warning-bg)',
+            borderColor: profile.confirmed ? 'var(--success-border)' : 'var(--warning-border)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            gap: 'var(--sp-4)',
+            flexWrap: 'wrap',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
             {profile.confirmed ? (
-              <ShieldCheck size={20} color="#059669" />
+              <ShieldCheck size={22} color="var(--success)" />
             ) : (
-              <AlertTriangle size={20} color="#d97706" />
+              <AlertTriangle size={22} color="var(--warning)" />
             )}
             <div>
-              <div style={{ fontWeight: 600, color: profile.confirmed ? '#065f46' : '#92400e' }}>
-                {profile.confirmed
-                  ? 'Profile Confirmed for Discovery'
-                  : 'Pending Review & Confirmation'}
+              <div
+                style={{
+                  fontWeight: 700,
+                  fontSize: 'var(--fs-base)',
+                  color: profile.confirmed ? 'var(--success-text)' : 'var(--warning-text)',
+                }}
+              >
+                {profile.confirmed ? 'Profile Confirmed for Discovery' : 'Pending Review & Confirmation'}
               </div>
-              <div style={{ fontSize: '0.75rem', color: profile.confirmed ? '#047857' : '#b45309' }}>
+              <div
+                style={{
+                  fontSize: 'var(--fs-xs)',
+                  color: profile.confirmed ? '#065f46' : '#78350f',
+                  marginTop: '2px',
+                }}
+              >
                 {profile.confirmed
-                  ? 'The agent is actively using this confirmed ICP to discover customer opportunities.'
-                  : 'Please review the fields below and click Confirm before launching research.'}
+                  ? 'AgentReach uses this ICP model to score community conversations.'
+                  : 'Review the facts and parameters below, then click Confirm to unlock autonomous discovery.'}
               </div>
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
             <button className="btn btn-secondary btn-sm" onClick={handleSaveProfile}>
-              <Save size={14} /> Save Edits
+              <Save size={14} />
+              <span>Save Edits</span>
             </button>
             {!profile.confirmed && (
               <button className="btn btn-primary btn-sm" onClick={handleConfirmProfile}>
-                <CheckCircle2 size={14} /> Confirm Profile
+                <CheckCircle2 size={14} />
+                <span>Confirm Profile</span>
               </button>
             )}
           </div>
-        </div>
+        </section>
       )}
 
       {/* Detail View Tabs */}
       {profile && (
         <div>
           {/* Sub Navigation */}
-          <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--border)', marginBottom: '1rem' }}>
+          <div
+            role="tablist"
+            aria-label="Profile Sections"
+            style={{
+              display: 'flex',
+              gap: 'var(--sp-2)',
+              borderBottom: '1px solid var(--border)',
+              marginBottom: 'var(--sp-5)',
+            }}
+          >
             <button
+              role="tab"
+              aria-selected={activeTab === 'profile'}
               onClick={() => setActiveTab('profile')}
               style={{
-                padding: '0.5rem 1rem',
+                padding: 'var(--sp-2) var(--sp-4)',
                 border: 'none',
                 background: 'none',
                 borderBottom: activeTab === 'profile' ? '2px solid var(--primary)' : '2px solid transparent',
-                fontWeight: activeTab === 'profile' ? 600 : 500,
-                color: activeTab === 'profile' ? 'var(--primary)' : '#64748b',
+                fontWeight: activeTab === 'profile' ? 700 : 500,
+                color: activeTab === 'profile' ? 'var(--primary)' : 'var(--text-muted)',
                 cursor: 'pointer',
+                fontSize: 'var(--fs-sm)',
               }}
             >
               Core Profile & ICP
             </button>
             <button
+              role="tab"
+              aria-selected={activeTab === 'facts'}
               onClick={() => setActiveTab('facts')}
               style={{
-                padding: '0.5rem 1rem',
+                padding: 'var(--sp-2) var(--sp-4)',
                 border: 'none',
                 background: 'none',
                 borderBottom: activeTab === 'facts' ? '2px solid var(--primary)' : '2px solid transparent',
-                fontWeight: activeTab === 'facts' ? 600 : 500,
-                color: activeTab === 'facts' ? 'var(--primary)' : '#64748b',
+                fontWeight: activeTab === 'facts' ? 700 : 500,
+                color: activeTab === 'facts' ? 'var(--primary)' : 'var(--text-muted)',
                 cursor: 'pointer',
+                fontSize: 'var(--fs-sm)',
               }}
             >
-              Verified Facts ({profile.facts?.length || 0})
+              Extracted Facts ({profile.facts?.length || 0})
             </button>
             <button
+              role="tab"
+              aria-selected={activeTab === 'inferences'}
               onClick={() => setActiveTab('inferences')}
               style={{
-                padding: '0.5rem 1rem',
+                padding: 'var(--sp-2) var(--sp-4)',
                 border: 'none',
                 background: 'none',
                 borderBottom: activeTab === 'inferences' ? '2px solid var(--primary)' : '2px solid transparent',
-                fontWeight: activeTab === 'inferences' ? 600 : 500,
-                color: activeTab === 'inferences' ? 'var(--primary)' : '#64748b',
+                fontWeight: activeTab === 'inferences' ? 700 : 500,
+                color: activeTab === 'inferences' ? 'var(--primary)' : 'var(--text-muted)',
                 cursor: 'pointer',
+                fontSize: 'var(--fs-sm)',
               }}
             >
-              AI Inferences ({profile.inferences?.length || 0})
+              Market Inferences ({profile.inferences?.length || 0})
             </button>
           </div>
 
           {activeTab === 'profile' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
-              <div className="card">
-                <label className="label">Product / Business Name</label>
-                <input
-                  type="text"
-                  className="input"
-                  style={{ marginBottom: '1rem' }}
-                  value={formData.name || ''}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                />
+            <div className="form-grid-2">
+              <div className="card" style={{ padding: 'var(--sp-5)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
+                <div className="form-group">
+                  <label htmlFor="prof-name" className="label">Product / Business Name</label>
+                  <input
+                    id="prof-name"
+                    type="text"
+                    className="input"
+                    value={formData.name || ''}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  />
+                </div>
 
-                <label className="label">Niche & Category</label>
-                <input
-                  type="text"
-                  className="input"
-                  style={{ marginBottom: '1rem' }}
-                  value={formData.niche || ''}
-                  onChange={(e) => setFormData({ ...formData, niche: e.target.value })}
-                />
+                <div className="form-group">
+                  <label htmlFor="prof-niche" className="label">Niche & Category</label>
+                  <input
+                    id="prof-niche"
+                    type="text"
+                    className="input"
+                    value={formData.niche || ''}
+                    onChange={(e) => setFormData({ ...formData, niche: e.target.value })}
+                  />
+                </div>
 
-                <label className="label">Ideal Customer Profile (ICP)</label>
-                <textarea
-                  className="textarea"
-                  rows={3}
-                  style={{ marginBottom: '1rem' }}
-                  value={formData.icp || ''}
-                  onChange={(e) => setFormData({ ...formData, icp: e.target.value })}
-                />
+                <div className="form-group">
+                  <label htmlFor="prof-icp" className="label">Ideal Customer Profile (ICP)</label>
+                  <textarea
+                    id="prof-icp"
+                    className="textarea"
+                    rows={3}
+                    value={formData.icp || ''}
+                    onChange={(e) => setFormData({ ...formData, icp: e.target.value })}
+                  />
+                </div>
 
-                <label className="label">Core Offering / Value Proposition</label>
-                <textarea
-                  className="textarea"
-                  rows={3}
-                  value={formData.main_product_or_service || ''}
-                  onChange={(e) => setFormData({ ...formData, main_product_or_service: e.target.value })}
-                />
+                <div className="form-group">
+                  <label htmlFor="prof-main-product" className="label">Core Value Proposition</label>
+                  <textarea
+                    id="prof-main-product"
+                    className="textarea"
+                    rows={3}
+                    value={formData.main_product_or_service || ''}
+                    onChange={(e) => setFormData({ ...formData, main_product_or_service: e.target.value })}
+                  />
+                </div>
               </div>
 
-              <div className="card">
-                <label className="label">Problems Solved (comma or newline separated)</label>
-                <textarea
-                  className="textarea"
-                  rows={4}
-                  style={{ marginBottom: '1rem' }}
-                  value={(formData.problems_solved || []).join('\n')}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      problems_solved: e.target.value.split('\n').filter((x) => x.trim()),
-                    })
-                  }
-                />
+              <div className="card" style={{ padding: 'var(--sp-5)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
+                <div className="form-group">
+                  <label htmlFor="prof-problems" className="label">Problems Solved (one per line)</label>
+                  <textarea
+                    id="prof-problems"
+                    className="textarea"
+                    rows={4}
+                    value={(formData.problems_solved || []).join('\n')}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        problems_solved: e.target.value.split('\n').filter((x) => x.trim()),
+                      })
+                    }
+                  />
+                </div>
 
-                <label className="label">Customer Frustrations & Vent Expressions</label>
-                <textarea
-                  className="textarea"
-                  rows={4}
-                  style={{ marginBottom: '1rem' }}
-                  value={(formData.customer_frustrations || []).join('\n')}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      customer_frustrations: e.target.value.split('\n').filter((x) => x.trim()),
-                    })
-                  }
-                />
+                <div className="form-group">
+                  <label htmlFor="prof-frustrations" className="label">Customer Frustrations & Vent Terms</label>
+                  <textarea
+                    id="prof-frustrations"
+                    className="textarea"
+                    rows={4}
+                    value={(formData.customer_frustrations || []).join('\n')}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        customer_frustrations: e.target.value.split('\n').filter((x) => x.trim()),
+                      })
+                    }
+                  />
+                </div>
 
-                <label className="label">Known Competitors & Alternatives</label>
-                <input
-                  type="text"
-                  className="input"
-                  placeholder="e.g. Linear, Jira, Asana"
-                  value={(formData.competitors_and_alternatives || []).join(', ')}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      competitors_and_alternatives: e.target.value.split(',').map((x) => x.trim()),
-                    })
-                  }
-                />
+                <div className="form-group">
+                  <label htmlFor="prof-competitors" className="label">Known Competitors & Alternatives</label>
+                  <input
+                    id="prof-competitors"
+                    type="text"
+                    className="input"
+                    placeholder="e.g. Linear, Jira, Asana"
+                    value={(formData.competitors_and_alternatives || []).join(', ')}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        competitors_and_alternatives: e.target.value.split(',').map((x) => x.trim()),
+                      })
+                    }
+                  />
+                </div>
               </div>
             </div>
           )}
 
           {activeTab === 'facts' && (
-            <div className="card" style={{ padding: 0 }}>
-              <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>
-                DIRECT CLAIMS EXTRACTED WITH VERIFIABLE SOURCE LINKS
+            <div className="panel lead-table-panel">
+              <div className="table-header">
+                <div>
+                  <h2>Extracted Facts with Source Citations</h2>
+                  <span>Ground truth claims extracted directly from provided web pages</span>
+                </div>
               </div>
               {profile.facts?.length === 0 ? (
-                <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>No verified facts extracted yet.</div>
-              ) : (
-                profile.facts.map((fact, idx) => (
-                  <div key={idx} style={{ padding: '0.875rem 1rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div>
-                      <span className="badge badge-medium" style={{ marginRight: '0.5rem' }}>{fact.category}</span>
-                      <span style={{ fontSize: '0.8125rem', color: '#0f172a' }}>{fact.claim}</span>
-                    </div>
-                    <a
-                      href={fact.source_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ fontSize: '0.75rem', color: 'var(--primary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
-                    >
-                      <ExternalLink size={12} /> Source Page
-                    </a>
+                <div className="empty-state">
+                  <div className="empty-icon">
+                    <Globe size={20} />
                   </div>
-                ))
+                  <strong>No verified facts recorded yet</strong>
+                  <span>Analyze your website above to extract verifiable product claims.</span>
+                </div>
+              ) : (
+                <div className="priority-list">
+                  {profile.facts.map((fact, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        padding: 'var(--sp-4) var(--sp-5)',
+                        borderBottom: '1px solid var(--border)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 'var(--sp-4)',
+                      }}
+                    >
+                      <div>
+                        <span className="badge badge-medium" style={{ marginRight: 'var(--sp-2)' }}>
+                          {fact.category}
+                        </span>
+                        <span style={{ fontSize: 'var(--fs-base)', color: 'var(--text-main)' }}>
+                          {fact.claim}
+                        </span>
+                      </div>
+                      <a
+                        href={fact.source_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          fontSize: 'var(--fs-xs)',
+                          color: 'var(--primary)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        <ExternalLink size={12} /> Source Page
+                      </a>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}
 
           {activeTab === 'inferences' && (
-            <div className="card" style={{ padding: 0 }}>
-              <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>
-                AI-DERIVED MARKET & BUYING SIGNAL INFERENCES
+            <div className="panel lead-table-panel">
+              <div className="table-header">
+                <div>
+                  <h2>AI-Derived Market & Buying Signals</h2>
+                  <span>Synthesized ICP nuances, purchase triggers, and audience intent patterns</span>
+                </div>
               </div>
               {profile.inferences?.length === 0 ? (
-                <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>No AI inferences recorded.</div>
-              ) : (
-                profile.inferences.map((inf, idx) => (
-                  <div key={idx} style={{ padding: '1rem', borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                      <span style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.875rem' }}>{inf.insight}</span>
-                      <span className="badge badge-high">{Math.round(inf.confidence * 100)}% Confidence</span>
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                      <strong>Evidence Basis:</strong> {inf.basis}
-                    </div>
+                <div className="empty-state">
+                  <div className="empty-icon">
+                    <Sparkles size={20} />
                   </div>
-                ))
+                  <strong>No market inferences generated yet</strong>
+                  <span>Provide more details or analyze additional pages to unlock AI insights.</span>
+                </div>
+              ) : (
+                <div className="priority-list">
+                  {profile.inferences.map((inf, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        padding: 'var(--sp-4) var(--sp-5)',
+                        borderBottom: '1px solid var(--border)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginBottom: '4px',
+                        }}
+                      >
+                        <span style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: 'var(--fs-base)' }}>
+                          {inf.insight}
+                        </span>
+                        <span className="badge badge-high tabular">
+                          {Math.round(inf.confidence * 100)}% Confidence
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+                        <strong>Evidence Basis:</strong> {inf.basis}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}

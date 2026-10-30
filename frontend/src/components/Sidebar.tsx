@@ -33,7 +33,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Leads Inbox',
       icon: Inbox,
       badge: leadCounts.total ? leadCounts.total.toString() : undefined,
-      badgeColor: leadCounts.high_potential > 0 ? '#10b981' : '#64748b',
+      badgeColor: leadCounts.high_potential > 0 ? 'var(--success-bg)' : 'var(--surface-subtle)',
+      badgeTextColor: leadCounts.high_potential > 0 ? 'var(--success-text)' : 'var(--text-muted)',
     },
     { id: 'reply_studio', label: 'Reply Studio', icon: MessageSquare },
     { id: 'analytics', label: 'Customer Insights', icon: BarChart3 },
@@ -41,28 +42,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" aria-label="Main Navigation">
       {/* Brand Header */}
-      <div style={{ padding: '1rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold' }}>
+      <div className="sidebar-brand">
+        <div className="brand-icon">
           <Flame size={18} />
         </div>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: '0.875rem', letterSpacing: '-0.01em', color: '#0f172a' }}>AgentReach</div>
-          <div style={{ fontSize: '0.6875rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Customer Discovery</div>
+        <div className="brand-text">
+          <div className="brand-title">AgentReach</div>
+          <div className="brand-subtitle">Customer Discovery</div>
         </div>
       </div>
 
       {/* Emergency Stop Banner if active */}
       {emergencyStop && (
-        <div style={{ margin: '0.5rem', padding: '0.5rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '0.375rem', color: '#b91c1c', fontSize: '0.6875rem', fontWeight: 600 }}>
-          <ShieldAlert size={14} />
+        <div className="sidebar-emergency-alert" role="status">
+          <ShieldAlert size={15} />
           <span>STOP ACTIVE</span>
         </div>
       )}
 
       {/* Nav List */}
-      <nav style={{ padding: '0.75rem 0.5rem', display: 'flex', flexDirection: 'column', gap: '0.25rem', flex: 1 }}>
+      <nav className="sidebar-nav">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = currentTab === item.id;
@@ -70,36 +71,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               key={item.id}
               onClick={() => onSelectTab(item.id)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                width: '100%',
-                padding: '0.5rem 0.75rem',
-                borderRadius: 'var(--radius)',
-                border: 'none',
-                background: isActive ? 'var(--primary-light)' : 'transparent',
-                color: isActive ? 'var(--primary)' : '#475569',
-                fontWeight: isActive ? 600 : 500,
-                fontSize: '0.8125rem',
-                cursor: 'pointer',
-                textAlign: 'left',
-                transition: 'all 0.15s ease',
-              }}
+              className={`nav-item ${isActive ? 'active' : ''}`}
+              aria-current={isActive ? 'page' : undefined}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-                <Icon size={16} color={isActive ? 'var(--primary)' : '#64748b'} />
+              <div className="nav-item-content">
+                <Icon size={16} />
                 <span>{item.label}</span>
               </div>
               {item.badge && (
                 <span
+                  className="nav-badge"
                   style={{
-                    fontSize: '0.6875rem',
-                    fontWeight: 700,
-                    padding: '0.1rem 0.35rem',
-                    borderRadius: '4px',
-                    background: item.badgeColor || '#e2e8f0',
-                    color: '#ffffff',
+                    background: item.badgeColor,
+                    color: item.badgeTextColor,
                   }}
                 >
                   {item.badge}
@@ -111,14 +95,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </nav>
 
       {/* Footer Info */}
-      <div style={{ padding: '0.75rem', borderTop: '1px solid var(--border)', fontSize: '0.6875rem', color: '#94a3b8', display: 'flex', justifyContent: 'space-between' }}>
+      <div className="sidebar-footer">
         <span>Engine v2.0.0</span>
-        <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }}></span>
-          Ready
+        <span className="status-indicator">
+          <span className="status-dot status-dot-green" />
+          <span>Ready</span>
         </span>
       </div>
     </aside>
   );
 };
-
