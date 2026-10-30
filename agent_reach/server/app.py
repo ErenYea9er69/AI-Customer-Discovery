@@ -6,11 +6,14 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from fastapi import FastAPI, HTTPException, Query, Response
-from fastapi.responses import FileResponse
+import time
+from collections import defaultdict
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, Security
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from agent_reach.discovery.models import (
     BusinessProfile,
@@ -24,14 +27,75 @@ app = FastAPI(
     version="2.0.0",
 )
 
-# Enable CORS for local Vite development
+# Configure secure CORS origins (default to local dashboard ports or explicit env)
+allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", "")
+if allowed_origins_raw.strip():
+    allowed_origins = [o.strip() for o in allowed_origins_raw.split(",") if o.strip()]
+else:
+    allowed_origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+def verify_access(request: Request, api_key: Optional[str] = Security(api_key_header)):
+    expected_key = os.getenv("AGENT_REACH_API_KEY")
+    if expected_key:
+        auth_header = request.headers.get("Authorization", "")
+        bearer_key = auth_header.removeprefix("Bearer ").strip() if auth_header.startswith("Bearer ") else None
+        token = api_key or bearer_key
+        if not token or token != expected_key:
+            raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+
+
+@app.middleware("http")
+async def api_security_middleware(request: Request, call_next):
+    """Enforce API authentication across all /api/ endpoints when AGENT_REACH_API_KEY is configured."""
+    if request.url.path.startswith("/api/"):
+        expected_key = os.getenv("AGENT_REACH_API_KEY")
+        if expected_key:
+            api_key = request.headers.get("X-API-Key")
+            auth_header = request.headers.get("Authorization", "")
+            bearer_key = auth_header.removeprefix("Bearer ").strip() if auth_header.startswith("Bearer ") else None
+            token = api_key or bearer_key
+            if not token or token != expected_key:
+                return JSONResponse(status_code=401, content={"detail": "Invalid or missing API key."})
+    return await call_next(request)
+
+
+class InMemoryRateLimiter:
+    """Sliding-window in-memory rate limiter to protect expensive/crawler endpoints from DoS."""
+    def __init__(self, requests_per_minute: int = 60):
+        self.rpm = requests_per_minute
+        self.history = defaultdict(list)
+
+    def check(self, key: str, max_requests: Optional[int] = None) -> bool:
+        limit = max_requests or self.rpm
+        now = time.time()
+        window_start = now - 60.0
+        self.history[key] = [t for t in self.history[key] if t > window_start]
+        if len(self.history[key]) >= limit:
+            return False
+        self.history[key].append(now)
+        return True
+
+
+rate_limiter = InMemoryRateLimiter()
+
 
 storage = DiscoveryStorage()
 orchestrator = DiscoveryOrchestrator(storage)
@@ -40,18 +104,18 @@ orchestrator = DiscoveryOrchestrator(storage)
 # ── Request / Response Schemas ──
 
 class ExtractUrlRequest(BaseModel):
-    url: str
+    url: str = Field(min_length=4, max_length=2048)
 
 
 class ExtractManualRequest(BaseModel):
-    name: Optional[str] = None
-    description: str
+    name: Optional[str] = Field(default=None, max_length=200)
+    description: str = Field(min_length=10, max_length=50000)
 
 
 class LaunchCampaignRequest(BaseModel):
-    name: str = "Lead Discovery"
-    platforms: List[str] = ["reddit", "web"]
-    max_leads: int = 15
+    name: str = Field(default="Lead Discovery", max_length=200)
+    platforms: List[str] = Field(default_factory=lambda: ["reddit", "web"])
+    max_leads: int = Field(default=15, ge=1, le=100)
 
 
 class ApproveReplyRequest(BaseModel):
@@ -62,6 +126,7 @@ class ApproveReplyRequest(BaseModel):
 class UpdateSettingsRequest(BaseModel):
     posting_settings: Optional[PostingSettings] = None
     llm_settings: Optional[Dict[str, Any]] = None
+
 
 
 # ── Endpoints: Business Profile ──
@@ -75,7 +140,10 @@ def get_profile():
 
 
 @app.post("/api/profile/extract-url")
-def extract_from_url(req: ExtractUrlRequest):
+def extract_from_url(req: ExtractUrlRequest, request: Request):
+    client_ip = request.client.host if request.client else "local"
+    if not rate_limiter.check(f"extract_url:{client_ip}", max_requests=15):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded for URL extraction.")
     try:
         profile = orchestrator.business_engine.analyze_website(req.url)
         storage.save_business_profile(profile)
@@ -118,7 +186,10 @@ def list_campaigns():
 
 
 @app.post("/api/campaigns/launch")
-def launch_campaign(req: LaunchCampaignRequest):
+def launch_campaign(req: LaunchCampaignRequest, request: Request):
+    client_ip = request.client.host if request.client else "local"
+    if not rate_limiter.check(f"launch_campaign:{client_ip}", max_requests=15):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded for campaign launches.")
     try:
         campaign_id = orchestrator.run_campaign_background(
             campaign_name=req.name,
@@ -202,7 +273,10 @@ def get_reply(lead_id: str):
 
 
 @app.post("/api/replies/{lead_id}/generate")
-def generate_reply(lead_id: str):
+def generate_reply(lead_id: str, request: Request):
+    client_ip = request.client.host if request.client else "local"
+    if not rate_limiter.check(f"generate_reply:{client_ip}", max_requests=30):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded for reply generation.")
     lead = storage.get_lead(lead_id)
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
@@ -260,9 +334,23 @@ def get_analytics():
 
 # ── Endpoints: Settings ──
 
-@app.get("/api/settings")
+MASKED_SECRET = "***"
+
+
+def _mask_posting_settings(settings_dict: Dict[str, Any]) -> Dict[str, Any]:
+    masked = dict(settings_dict)
+    for field in ("reddit_password", "reddit_client_secret", "github_token"):
+        val = masked.get(field)
+        masked[f"has_{field}"] = bool(val and str(val).strip())
+        if val:
+            masked[field] = MASKED_SECRET
+    return masked
+
+
+@app.get("/api/settings", dependencies=[Depends(verify_access)])
 def get_settings():
-    posting = storage.get_setting("posting_settings", PostingSettings().model_dump())
+    raw_posting = storage.get_setting("posting_settings", PostingSettings().model_dump())
+    masked_posting = _mask_posting_settings(raw_posting)
     llm = storage.get_setting(
         "llm_settings",
         {
@@ -271,21 +359,34 @@ def get_settings():
             "has_api_key": bool(os.getenv("LLM_API_KEY")),
         },
     )
-    return {"posting_settings": posting, "llm_settings": llm}
+    if isinstance(llm, dict) and "api_key" in llm:
+        llm["has_api_key"] = bool(llm.get("api_key"))
+        llm["api_key"] = MASKED_SECRET
+    return {"posting_settings": masked_posting, "llm_settings": llm}
 
 
-@app.post("/api/settings")
+@app.post("/api/settings", dependencies=[Depends(verify_access)])
 def update_settings(data: UpdateSettingsRequest):
     if data.posting_settings is not None:
-        storage.set_setting("posting_settings", data.posting_settings.model_dump())
+        new_dict = data.posting_settings.model_dump()
+        existing_dict = storage.get_setting("posting_settings", {})
+        # Preserve existing secrets if incoming is masked or omitted
+        for field in ("reddit_password", "reddit_client_secret", "github_token"):
+            if new_dict.get(field) in (MASKED_SECRET, None) and existing_dict.get(field):
+                new_dict[field] = existing_dict[field]
+        storage.set_setting("posting_settings", new_dict)
     if data.llm_settings is not None:
-        storage.set_setting("llm_settings", data.llm_settings)
+        new_llm = dict(data.llm_settings)
+        existing_llm = storage.get_setting("llm_settings", {})
+        if new_llm.get("api_key") in (MASKED_SECRET, None) and existing_llm.get("api_key"):
+            new_llm["api_key"] = existing_llm["api_key"]
+        storage.set_setting("llm_settings", new_llm)
     return {"ok": True}
 
 
 # ── Endpoints: Export ──
 
-@app.get("/api/export")
+@app.get("/api/export", dependencies=[Depends(verify_access)])
 def export_leads(format: str = Query("json"), min_score: int = Query(0)):
     if format.lower() == "csv":
         csv_data = storage.export_leads_csv(min_score=min_score)
@@ -297,16 +398,21 @@ def export_leads(format: str = Query("json"), min_score: int = Query(0)):
 
 # ── Serve Built Frontend if Present ──
 
-FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+FRONTEND_DIST = (Path(__file__).resolve().parent.parent.parent / "frontend" / "dist").resolve()
 if FRONTEND_DIST.exists():
     @app.get("/{path:path}")
     def spa_fallback(path: str):
         if path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not found")
-        requested_file = FRONTEND_DIST / path
-        if requested_file.is_file():
-            return FileResponse(requested_file)
+        try:
+            # Canonicalize and verify path stays strictly inside FRONTEND_DIST
+            requested_file = (FRONTEND_DIST / path).resolve()
+            if requested_file.is_relative_to(FRONTEND_DIST) and requested_file.is_file():
+                return FileResponse(requested_file)
+        except (ValueError, OSError):
+            pass
         return FileResponse(FRONTEND_DIST / "index.html")
 
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="static")
+
 

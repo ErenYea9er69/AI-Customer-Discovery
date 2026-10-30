@@ -23,7 +23,11 @@ from agent_reach.discovery.models import (
     ScoreBreakdown,
 )
 
-DEFAULT_DB_PATH = Path.home() / ".agent-reach" / "discovery.db"
+DEFAULT_DB_PATH = Path(
+    os.getenv("AGENT_REACH_DISCOVERY_DB")
+    or (Path.home() / ".agent-reach" / "discovery.db")
+)
+
 
 
 class DiscoveryStorage:

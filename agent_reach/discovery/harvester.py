@@ -50,7 +50,7 @@ class CommunityHarvester:
 
         encoded_q = urllib.parse.quote(query)
         if subreddit and subreddit.startswith("r/"):
-            sub_name = subreddit.removeprefix("r/")
+            sub_name = urllib.parse.quote(subreddit.removeprefix("r/"))
             url = f"https://www.reddit.com/r/{sub_name}/search.json?q={encoded_q}&restrict_sr=1&sort=relevance&limit={limit}"
         else:
             url = f"https://www.reddit.com/search.json?q={encoded_q}&sort=relevance&limit={limit}"

@@ -104,17 +104,22 @@ class LLMClient:
 
     def _call_gemini(self, prompt: str, system_prompt: Optional[str]) -> str:
         try:
-            import urllib.request
+            import requests
 
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model or 'gemini-1.5-flash'}:generateContent?key={self.api_key}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model or 'gemini-1.5-flash'}:generateContent"
             text = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
-            data = json.dumps({"contents": [{"parts": [{"text": text}]}]}).encode("utf-8")
-            req = urllib.request.Request(
-                url, data=data, headers={"Content-Type": "application/json"}
-            )
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-                return result["candidates"][0]["content"]["parts"][0]["text"]
+            payload = {"contents": [{"parts": [{"text": text}]}]}
+            headers = {
+                "Content-Type": "application/json",
+                "x-goog-api-key": str(self.api_key),
+            }
+            resp = requests.post(url, json=payload, headers=headers, timeout=30)
+            if resp.status_code != 200:
+                raise LLMProviderError(f"Gemini API returned status {resp.status_code}: {resp.text}")
+            result = resp.json()
+            return result["candidates"][0]["content"]["parts"][0]["text"]
+        except LLMProviderError:
+            raise
         except Exception as e:
             raise LLMProviderError(f"Gemini request failed: {e}") from e
 
@@ -137,11 +142,11 @@ class LLMClient:
 
     def _call_anthropic(self, prompt: str, system_prompt: Optional[str]) -> str:
         try:
-            import urllib.request
+            import requests
 
             url = "https://api.anthropic.com/v1/messages"
             headers = {
-                "x-api-key": self.api_key or "",
+                "x-api-key": str(self.api_key or ""),
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
             }
@@ -152,10 +157,13 @@ class LLMClient:
             }
             if system_prompt:
                 payload["system"] = system_prompt
-            req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                res = json.loads(resp.read().decode("utf-8"))
-                return res["content"][0]["text"]
+            resp = requests.post(url, json=payload, headers=headers, timeout=30)
+            if resp.status_code != 200:
+                raise LLMProviderError(f"Anthropic API returned status {resp.status_code}: {resp.text}")
+            res = resp.json()
+            return res["content"][0]["text"]
+        except LLMProviderError:
+            raise
         except Exception as e:
             raise LLMProviderError(f"Anthropic request failed: {e}") from e
 

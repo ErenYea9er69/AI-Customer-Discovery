@@ -6,7 +6,14 @@ from agent_reach.server.app import app
 client = TestClient(app)
 
 
-def test_server_api_flow():
+def test_server_api_flow(tmp_path):
+    from agent_reach.server import app as server_mod
+    from agent_reach.discovery.storage import DiscoveryStorage
+    from agent_reach.discovery.orchestrator import DiscoveryOrchestrator
+
+    test_storage = DiscoveryStorage(tmp_path / "test_api.db")
+    server_mod.storage = test_storage
+    server_mod.orchestrator = DiscoveryOrchestrator(test_storage)
     # 1. Profile extraction
     resp = client.post(
         "/api/profile/extract-manual",
@@ -39,10 +46,16 @@ def test_server_api_flow():
     assert list_camp.status_code == 200
     assert len(list_camp.json()["campaigns"]) > 0
 
-    # 3. List leads
-    leads_resp = client.get("/api/leads")
-    assert leads_resp.status_code == 200
-    leads = leads_resp.json()["leads"]
+    # 3. List leads (wait for background campaign to populate)
+    import time
+    leads = []
+    for _ in range(50):
+        leads_resp = client.get("/api/leads")
+        assert leads_resp.status_code == 200
+        leads = leads_resp.json()["leads"]
+        if len(leads) > 0:
+            break
+        time.sleep(0.1)
     assert len(leads) > 0
     first_lead = leads[0]
     lead_id = first_lead["id"]
