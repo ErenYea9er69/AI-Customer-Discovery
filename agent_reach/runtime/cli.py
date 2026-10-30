@@ -554,6 +554,12 @@ def main(argv: Sequence[str]) -> int:
         return _cmd_doctor(rest)
     if head == "skill":
         return _cmd_skill(rest)
+    if head == "dashboard":
+        from agent_reach.discovery.cli import cmd_dashboard
+        return cmd_dashboard(rest)
+    if head in ("discovery", "lead-gen"):
+        from agent_reach.discovery.cli import cmd_discovery
+        return cmd_discovery(rest)
     if head in _MANAGEMENT:
         return _cmd_management(head, rest)
     channel = _channel(head)

@@ -25,10 +25,13 @@ def _ensure_utf8_console():
 
 def _configure_logging(verbose: bool = False):
     """Suppress loguru output unless --verbose is set."""
-    from loguru import logger
-    logger.remove()  # Remove default stderr handler
-    if verbose:
-        logger.add(sys.stderr, level="INFO")
+    try:
+        from loguru import logger
+        logger.remove()  # Remove default stderr handler
+        if verbose:
+            logger.add(sys.stderr, level="INFO")
+    except ImportError:
+        pass
 
 
 def main():
