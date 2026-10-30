@@ -58,14 +58,14 @@
   --surface-hover: #f8fafc;
   
   --text-main: #0f172a;
-  --text-muted: #475569;
-  --text-subtle: #64748b;
-  --text-disabled: #94a3b8;
+  --text-muted: #334155;
+  --text-subtle: #475569;
+  --text-disabled: #64748b;
 
   --border-subtle: #f1f5f9;
   --border: #e2e8f0;
   --border-strong: #cbd5e1;
-  --border-focus: #6366f1;
+  --border-focus: #4f46e5;
 
   /* Brand Primary */
   --primary: #4f46e5;
@@ -127,6 +127,29 @@ body {
   overflow: hidden;
   height: 100vh;
   width: 100vw;
+}
+
+/* Browser Surfaces & Polish */
+::selection {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+input, textarea {
+  caret-color: var(--primary);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  text-wrap: balance;
+}
+
+p, li, dd {
+  text-wrap: pretty;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }
 
 /* Accessibility: Skip Link */
@@ -230,16 +253,16 @@ a {
 }
 
 .brand-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: var(--r-sm);
-  background: linear-gradient(135deg, var(--primary), #6366f1);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-md);
+  background: var(--primary);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--primary-foreground);
   flex-shrink: 0;
-  box-shadow: 0 2px 6px rgba(79, 70, 229, 0.25);
+  box-shadow: var(--shadow-sm);
 }
 
 .brand-text {
@@ -570,8 +593,20 @@ a {
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
+.card {
+  padding: var(--sp-5);
+}
+
 .panel {
   padding: var(--sp-6);
+}
+
+.section-title {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--text-main);
+  letter-spacing: -0.01em;
+  margin-bottom: var(--sp-2);
 }
 
 .panel-header {
@@ -620,8 +655,9 @@ a {
 }
 
 .metric-card-primary {
-  background: linear-gradient(180deg, var(--surface) 0%, var(--primary-subtle) 100%);
-  border-color: #c7d2fe;
+  background: var(--surface);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
 }
 
 .metric-label {
@@ -803,8 +839,8 @@ a {
   padding: 6px var(--sp-3);
   color: var(--text-muted);
   background: var(--surface-subtle);
-  border-left: 3px solid var(--border-strong);
-  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
   font-size: var(--fs-xs);
   line-height: 1.45;
   white-space: nowrap;
@@ -1288,9 +1324,9 @@ a {
 
 .detail-block blockquote {
   padding: var(--sp-3) var(--sp-4);
-  border-left: 3px solid var(--border-strong);
+  border: 1px solid var(--border);
   background: var(--surface-subtle);
-  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  border-radius: var(--r-md);
   font-style: italic;
 }
 
@@ -1318,38 +1354,73 @@ a {
 
 .toast {
   position: fixed;
-  z-index: 60;
-  top: 70px;
+  z-index: 1000;
+  top: var(--sp-4);
   right: var(--sp-6);
   display: flex;
   align-items: center;
   gap: var(--sp-3);
   max-width: 440px;
   padding: var(--sp-3) var(--sp-4);
-  border: 1px solid;
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
   background: var(--surface);
   font-size: var(--fs-sm);
+  color: var(--text-main);
+  animation: toastSlideIn var(--transition-normal);
 }
 
-.toast button {
+@keyframes toastSlideIn {
+  from {
+    transform: translateY(-12px) scale(0.98);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.toast-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.toast-message {
+  flex: 1;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.toast-dismiss {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-sm);
   margin-left: auto;
   color: var(--text-subtle);
+  transition: all var(--transition-fast);
 }
-.toast button:hover {
+
+.toast-dismiss:hover {
+  background: rgba(0, 0, 0, 0.05);
   color: var(--text-main);
 }
 
 .toast-error {
   color: var(--danger-text);
   border-color: var(--danger-border);
+  background: var(--danger-bg);
 }
 
 .toast-success {
   color: var(--success-text);
   border-color: var(--success-border);
+  background: var(--success-bg);
 }
 
 .empty-state, .table-empty {

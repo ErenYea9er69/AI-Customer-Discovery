@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Lightbulb, BarChart3 } from 'lucide-react';
+import { Lightbulb } from 'lucide-react';
 import type { AnalyticsSummary } from '../types';
 import { api } from '../api';
 
@@ -37,9 +37,6 @@ export const AnalyticsView: React.FC = () => {
     <div className="page-shell">
       <div className="page-heading">
         <div>
-          <div className="eyebrow">
-            <BarChart3 size={13} /> Aggregated Intelligence
-          </div>
           <h1>Customer Insights & Market Patterns</h1>
           <p>
             Synthesized pain points, competitor dissatisfaction signals, and strategic recommendations across{' '}
@@ -51,9 +48,7 @@ export const AnalyticsView: React.FC = () => {
       {/* Actionable Strategy Recommendations */}
       {analytics.recommendations && analytics.recommendations.length > 0 && (
         <section style={{ marginBottom: 'var(--sp-6)' }}>
-          <div className="eyebrow eyebrow-muted" style={{ marginBottom: 'var(--sp-3)' }}>
-            Strategic Playbooks
-          </div>
+          <h2 className="section-title">Strategic Playbooks</h2>
           <div className="form-grid-3">
             {analytics.recommendations.map((rec, idx) => (
               <div

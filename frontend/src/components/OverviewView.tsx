@@ -5,10 +5,8 @@ import {
   CheckCircle2,
   Compass,
   ExternalLink,
-  Flame,
   MessageSquare,
   ShieldCheck,
-  Sparkles,
   Target,
 } from 'lucide-react';
 import type { BusinessProfile, LeadQualification } from '../types';
@@ -44,9 +42,6 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
     <div className="page-shell overview-page">
       <section className="page-heading overview-heading">
         <div>
-          <div className="eyebrow">
-            <Sparkles size={13} /> Opportunity Desk
-          </div>
           <h1>Turn public customer pain into conversations</h1>
           <p>
             AgentReach finds problem-aware discussions, surfaces clear evidence, and helps you craft high-converting replies safely.
@@ -134,9 +129,6 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         <article className="panel priority-panel">
           <div className="panel-header">
             <div>
-              <div className="eyebrow eyebrow-muted">
-                <Flame size={13} /> Recommended Action
-              </div>
               <h2>Priority Conversations</h2>
               <p>Top discussions scored on problem fit, urgency, and purchase intent.</p>
             </div>
@@ -206,9 +198,6 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         </article>
 
         <aside className="panel control-panel">
-          <div className="eyebrow eyebrow-muted">
-            <ShieldCheck size={13} /> Safety Architecture
-          </div>
           <h2>Safe by Default</h2>
           <p style={{ marginTop: '6px', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)', lineHeight: '1.5' }}>
             AgentReach separates research, drafting, human approval, and publishing to ensure automated spam never occurs.

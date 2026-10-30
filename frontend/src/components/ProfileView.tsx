@@ -5,10 +5,9 @@ import {
   CheckCircle2,
   AlertTriangle,
   ExternalLink,
-  Sparkles,
+  Target,
   Save,
   ShieldCheck,
-  Building2,
 } from 'lucide-react';
 import type { BusinessProfile } from '../types';
 import { api } from '../api';
@@ -89,9 +88,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
     <div className="page-shell">
       <div className="page-heading">
         <div>
-          <div className="eyebrow">
-            <Building2 size={13} /> Audience & Value Modeling
-          </div>
           <h1>Business Profile & ICP</h1>
           <p>
             Extract your value proposition, customer pain points, and ideal customer profile from your website or product description.
@@ -156,7 +152,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
               />
             </div>
             <button type="submit" className="btn btn-primary" disabled={loading}>
-              <Sparkles size={16} />
+              <Globe size={16} />
               <span>{loading ? 'Analyzing Pages…' : 'Analyze Website'}</span>
             </button>
           </form>
@@ -185,7 +181,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button type="submit" className="btn btn-primary" disabled={loading}>
-                <Sparkles size={16} />
+                <FileText size={16} />
                 <span>{loading ? 'Extracting ICP…' : 'Extract Business Profile'}</span>
               </button>
             </div>
@@ -486,17 +482,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
             <div className="panel lead-table-panel">
               <div className="table-header">
                 <div>
-                  <h2>AI-Derived Market & Buying Signals</h2>
+                  <h2>Market & Buying Signals</h2>
                   <span>Synthesized ICP nuances, purchase triggers, and audience intent patterns</span>
                 </div>
               </div>
               {profile.inferences?.length === 0 ? (
                 <div className="empty-state">
                   <div className="empty-icon">
-                    <Sparkles size={20} />
+                    <Target size={20} />
                   </div>
                   <strong>No market inferences generated yet</strong>
-                  <span>Provide more details or analyze additional pages to unlock AI insights.</span>
+                  <span>Provide more details or analyze additional pages to unlock market insights.</span>
                 </div>
               ) : (
                 <div className="priority-list">

@@ -3,11 +3,10 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
-  Filter,
+  Inbox,
   MessageSquare,
   Search,
   X,
-  Sparkles,
 } from 'lucide-react';
 import type { LeadQualification } from '../types';
 import { api } from '../api';
@@ -81,9 +80,6 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
     <div className="page-shell leads-page">
       <section className="page-heading">
         <div>
-          <div className="eyebrow">
-            <Filter size={13} /> Opportunities Inbox
-          </div>
           <h1>Qualified Customer Discussions</h1>
           <p>
             Inspect customer evidence, review multi-dimensional qualification scores, and prepare high-value replies.
@@ -177,7 +173,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
         ) : leads.length === 0 ? (
           <div className="table-empty">
             <div className="empty-icon">
-              <Sparkles size={20} />
+              <Inbox size={20} />
             </div>
             <strong>No leads match these filters</strong>
             <span>Try clearing search keywords, adjusting intent filters, or launching a new campaign.</span>

@@ -3,9 +3,6 @@ import {
   Save,
   Download,
   ShieldAlert,
-  Sliders,
-  Cpu,
-  Share2,
   CheckCircle2,
 } from 'lucide-react';
 import type { PostingSettings } from '../types';
@@ -66,9 +63,6 @@ export const SettingsView: React.FC = () => {
     <div className="page-shell">
       <div className="page-heading">
         <div>
-          <div className="eyebrow">
-            <Sliders size={13} /> Guardrails & Engine Configuration
-          </div>
           <h1>Settings & Safety Controls</h1>
           <p>
             Configure LLM providers, community whitelists, rate limits, and publishing safety mechanisms.
@@ -152,9 +146,6 @@ export const SettingsView: React.FC = () => {
         <section className="panel">
           <div className="panel-header">
             <div>
-              <div className="eyebrow eyebrow-muted">
-                <Cpu size={13} /> Intelligence Backend
-              </div>
               <h2>AI Model Provider</h2>
               <p>Select which LLM powers business understanding extraction and personalized reply drafts.</p>
             </div>
@@ -218,9 +209,6 @@ export const SettingsView: React.FC = () => {
         <section className="panel">
           <div className="panel-header">
             <div>
-              <div className="eyebrow eyebrow-muted">
-                <Sliders size={13} /> Rate Limits & Guardrails
-              </div>
               <h2>Publishing Controls & Safety Rules</h2>
               <p>Enforce strict community boundaries and rate limiting to maintain account standing.</p>
             </div>
@@ -316,9 +304,6 @@ export const SettingsView: React.FC = () => {
         <section className="panel">
           <div className="panel-header">
             <div>
-              <div className="eyebrow eyebrow-muted">
-                <Share2 size={13} /> Data Portability
-              </div>
               <h2>Data Export & CRM Sync</h2>
               <p>Download discovered leads, qualification scores, and discussion URLs for CRM import.</p>
             </div>

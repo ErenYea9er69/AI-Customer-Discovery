@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
-  MessageSquare,
   Copy,
   ExternalLink,
   CheckCircle,
   ShieldCheck,
   Send,
-  Sparkles,
+  LoaderCircle,
   Compass,
 } from 'lucide-react';
 import type { GeneratedReply, LeadQualification } from '../types';
@@ -152,9 +151,6 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
     <div className="page-shell">
       <div className="page-heading">
         <div>
-          <div className="eyebrow">
-            <MessageSquare size={13} /> Contextual Engagement
-          </div>
           <h1>Reply Studio</h1>
           <p>
             Generate helpful, value-first replies with transparent affiliation disclosures and human approval gates.
@@ -227,7 +223,7 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
 
       {loading || !lead ? (
         <div className="panel" style={{ padding: 'var(--sp-12)', textAlign: 'center' }}>
-          <Sparkles className="spin" size={24} style={{ margin: '0 auto var(--sp-2)', color: 'var(--primary)' }} />
+          <LoaderCircle className="spin" size={24} style={{ margin: '0 auto var(--sp-2)', color: 'var(--primary)' }} />
           <div>Synthesizing context and drafting response…</div>
         </div>
       ) : (
@@ -288,9 +284,7 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
 
             {/* Extracted Problem & Product Angle */}
             <div className="card" style={{ padding: 'var(--sp-5)' }}>
-              <div className="eyebrow eyebrow-muted" style={{ marginBottom: 'var(--sp-2)' }}>
-                Identified Need & Opportunity
-              </div>
+              <h3 className="section-title">Identified Need & Opportunity</h3>
               <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-main)', marginBottom: 'var(--sp-2)' }}>
                 {lead.customer_problem}
               </div>
@@ -303,9 +297,7 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
           {/* Right Column: Reply Composition */}
           <div className="card" style={{ padding: 'var(--sp-5)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
             <div>
-              <div className="eyebrow" style={{ marginBottom: 'var(--sp-2)' }}>
-                Draft Strategy
-              </div>
+              <h3 className="section-title">Draft Strategy</h3>
               <div className="version-toggle-bar">
                 <button
                   type="button"

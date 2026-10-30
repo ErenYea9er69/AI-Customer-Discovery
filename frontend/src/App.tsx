@@ -73,6 +73,12 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 4500);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
     const onPopState = () => {
       const next = currentLocation();
       setCurrentTab(next.tab);
@@ -127,16 +133,23 @@ export const App: React.FC = () => {
         </header>
 
         {notice && (
-          <div
+          <aside
             className={`toast toast-${notice.type}`}
             role={notice.type === 'error' ? 'alert' : 'status'}
+            aria-live="polite"
           >
-            <span>{notice.type === 'error' ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}</span>
-            <span>{notice.message}</span>
-            <button onClick={() => setNotice(null)} aria-label="Dismiss notification">
+            <span className="toast-icon">
+              {notice.type === 'error' ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
+            </span>
+            <span className="toast-message">{notice.message}</span>
+            <button
+              className="toast-dismiss"
+              onClick={() => setNotice(null)}
+              aria-label="Dismiss notification"
+            >
               <X size={15} />
             </button>
-          </div>
+          </aside>
         )}
 
         {loading ? (

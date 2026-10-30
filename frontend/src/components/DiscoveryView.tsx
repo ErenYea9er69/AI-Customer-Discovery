@@ -5,7 +5,6 @@ import {
   RotateCcw,
   CheckCircle,
   HelpCircle,
-  Sparkles,
 } from 'lucide-react';
 import type { BusinessProfile, Campaign } from '../types';
 import { api } from '../api';
@@ -91,9 +90,6 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
     <div className="page-shell">
       <div className="page-heading">
         <div>
-          <div className="eyebrow">
-            <Compass size={13} /> Autonomous Research
-          </div>
           <h1>Discovery Engine</h1>
           <p>
             Scan online communities for users actively reporting pain points that match your ICP.
@@ -294,7 +290,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
         {campaigns.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">
-              <Sparkles size={20} />
+              <Compass size={20} />
             </div>
             <strong>No campaigns run yet</strong>
             <span>Configure sources above and launch your first autonomous customer discovery run.</span>
