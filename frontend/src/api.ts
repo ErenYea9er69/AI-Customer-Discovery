@@ -91,6 +91,8 @@ export const api = {
     pain_point_category?: string;
     buying_intent?: string;
     query?: string;
+    limit?: number;
+    offset?: number;
   } = {}): Promise<LeadQualification[]> {
     const params = new URLSearchParams();
     if (filters.min_score !== undefined) params.append('min_score', filters.min_score.toString());
@@ -99,6 +101,8 @@ export const api = {
     if (filters.pain_point_category) params.append('pain_point_category', filters.pain_point_category);
     if (filters.buying_intent) params.append('buying_intent', filters.buying_intent);
     if (filters.query) params.append('query', filters.query);
+    if (filters.limit !== undefined) params.append('limit', filters.limit.toString());
+    if (filters.offset !== undefined) params.append('offset', filters.offset.toString());
 
     const res = await fetch(`${BASE_URL}/leads?${params.toString()}`);
     const data = await res.json();
@@ -141,6 +145,11 @@ export const api = {
 
   async publishReply(leadId: string): Promise<{ success: boolean; action?: string; text?: string; target_url?: string; reason?: string; message?: string }> {
     const res = await fetch(`${BASE_URL}/replies/${leadId}/publish`, { method: 'POST' });
+    return await res.json();
+  },
+
+  async confirmPublished(leadId: string): Promise<{ success: boolean; message?: string; reason?: string }> {
+    const res = await fetch(`${BASE_URL}/replies/${leadId}/confirm-published`, { method: 'POST' });
     return await res.json();
   },
 

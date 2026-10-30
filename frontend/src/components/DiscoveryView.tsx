@@ -21,6 +21,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
   const [maxLeads, setMaxLeads] = useState(15);
   const [running, setRunning] = useState(false);
   const [activeCampaign, setActiveCampaign] = useState<Campaign | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
 
   const loadCampaigns = async () => {
     try {
@@ -70,7 +71,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
 
   const handleLaunch = async () => {
     if (!profile) {
-      alert('Please analyze your business profile first.');
+      setFeedback('Please analyze and confirm your business profile first.');
       return;
     }
     setRunning(true);
@@ -78,14 +79,16 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
       const campId = await api.launchCampaign(campaignName, selectedPlatforms, maxLeads);
       const camp = await api.getCampaign(campId);
       setActiveCampaign(camp);
+      setFeedback('Discovery started. This page will update as results arrive.');
     } catch (err: any) {
-      alert(`Launch error: ${err.message}`);
+      setFeedback(`Launch error: ${err.message}`);
       setRunning(false);
     }
   };
 
   return (
     <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '1200px' }}>
+      {feedback && <div className={`notice ${feedback.includes('error') || feedback.includes('Error') ? 'notice-error' : 'notice-info'}`} role="status"><span>{feedback}</span><button className="btn btn-secondary btn-sm" onClick={() => setFeedback(null)}>Dismiss</button></div>}
       {/* Launch Configuration Card */}
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>

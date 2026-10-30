@@ -110,11 +110,8 @@ class SearchPlanner:
             )
 
         # 2. Enrich with LLM-generated nuance queries if available
-        try:
-            llm_queries = self._generate_llm_queries(profile, target_subs)
-            queries.extend(llm_queries)
-        except Exception:
-            pass
+        llm_queries = self._generate_llm_queries(profile, target_subs)
+        queries.extend(llm_queries)
 
         # Deduplicate queries by query string
         seen = set()

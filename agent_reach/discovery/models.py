@@ -130,7 +130,7 @@ class GeneratedReply(BaseModel):
     product_aware: str
     edited_reply: Optional[str] = None
     selected_version: Literal["value_first", "product_aware", "custom"] = "value_first"
-    status: Literal["draft", "approved", "published", "rejected"] = "draft"
+    status: Literal["draft", "approved", "pending_manual_post", "published", "rejected"] = "draft"
     published_at: Optional[float] = None
     platform: str = "reddit"
     target_url: str = ""
@@ -169,7 +169,7 @@ class Campaign(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str = "Default Campaign"
     business_profile_id: str = ""
-    status: Literal["idle", "running", "completed", "failed"] = "idle"
+    status: Literal["idle", "running", "completed", "failed", "cancelled"] = "idle"
     selected_platforms: List[str] = Field(default_factory=lambda: ["reddit", "web"])
     queries: List[SearchQuery] = Field(default_factory=list)
     total_found: int = 0

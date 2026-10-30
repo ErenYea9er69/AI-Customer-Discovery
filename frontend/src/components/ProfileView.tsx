@@ -23,6 +23,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
   const [nameInput, setNameInput] = useState('');
   const [descInput, setDescInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'profile' | 'facts' | 'inferences'>('profile');
 
   // Form edit states
@@ -39,8 +40,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
     try {
       const extracted = await api.extractFromUrl(urlInput.trim());
       onProfileUpdated(extracted);
+      setFeedback('Profile extracted. Review the facts before confirming it.');
     } catch (err: any) {
-      alert(`Extraction failed: ${err.message}`);
+      setFeedback(`Extraction failed: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -53,8 +55,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
     try {
       const extracted = await api.extractFromManual(nameInput.trim(), descInput.trim());
       onProfileUpdated(extracted);
+      setFeedback('Profile analyzed. Review the facts before confirming it.');
     } catch (err: any) {
-      alert(`Analysis failed: ${err.message}`);
+      setFeedback(`Analysis failed: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -65,9 +68,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
     try {
       const updated = await api.updateProfile(formData as BusinessProfile);
       onProfileUpdated(updated);
-      alert('Business profile saved.');
+      setFeedback('Business profile saved.');
     } catch (err: any) {
-      alert(`Save failed: ${err.message}`);
+      setFeedback(`Save failed: ${err.message}`);
     }
   };
 
@@ -75,14 +78,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
     try {
       const confirmed = await api.confirmProfile();
       onProfileUpdated(confirmed);
-      alert('Business profile confirmed! You are ready to launch customer discovery.');
+      setFeedback('Business profile confirmed. You can now launch discovery.');
     } catch (err: any) {
-      alert(`Confirmation failed: ${err.message}`);
+      setFeedback(`Confirmation failed: ${err.message}`);
     }
   };
 
   return (
     <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '1200px' }}>
+      {feedback && <div className={`notice ${feedback.includes('failed') || feedback.includes('Failed') ? 'notice-error' : 'notice-info'}`} role="status"><span>{feedback}</span><button className="btn btn-secondary btn-sm" onClick={() => setFeedback(null)}>Dismiss</button></div>}
       {/* Top Banner / Onboarding Section */}
       <div className="card" style={{ padding: '1.25rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>

@@ -9,8 +9,12 @@ import re
 from typing import Any, Dict, List, Optional
 
 
+class LLMProviderError(RuntimeError):
+    """Raised when a configured provider fails; mock is opt-in only."""
+
+
 class LLMClient:
-    """Configurable LLM interface with fallback heuristic engine."""
+    """Configurable LLM interface with an explicit, deterministic mock provider."""
 
     def __init__(
         self,
@@ -33,8 +37,10 @@ class LLMClient:
 
     def complete(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """Get completion from selected provider or mock engine."""
-        if self.provider == "mock" or not self.api_key:
+        if self.provider == "mock":
             return self._mock_completion(prompt, system_prompt)
+        if not self.api_key:
+            raise LLMProviderError(f"Provider '{self.provider}' is configured but no API key is available.")
 
         if self.provider == "openai":
             return self._call_openai(prompt, system_prompt)
@@ -45,7 +51,7 @@ class LLMClient:
         elif self.provider == "anthropic":
             return self._call_anthropic(prompt, system_prompt)
         else:
-            return self._mock_completion(prompt, system_prompt)
+            raise LLMProviderError(f"Unsupported LLM provider: {self.provider}")
 
     def complete_json(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
         """Request structured JSON completion and parse safely."""
@@ -74,8 +80,7 @@ class LLMClient:
                     return json.loads(match.group(1))
                 except json.JSONDecodeError:
                     pass
-            # Return fallback empty structure
-            return {"error": "Failed to decode JSON", "raw": raw}
+            raise LLMProviderError("Configured LLM returned invalid JSON.")
 
     # ── Providers ──
 
@@ -95,7 +100,7 @@ class LLMClient:
             )
             return resp.choices[0].message.content or ""
         except Exception as e:
-            return self._mock_completion(prompt, system_prompt)
+            raise LLMProviderError(f"OpenAI request failed: {e}") from e
 
     def _call_gemini(self, prompt: str, system_prompt: Optional[str]) -> str:
         try:
@@ -110,8 +115,8 @@ class LLMClient:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
                 return result["candidates"][0]["content"]["parts"][0]["text"]
-        except Exception:
-            return self._mock_completion(prompt, system_prompt)
+        except Exception as e:
+            raise LLMProviderError(f"Gemini request failed: {e}") from e
 
     def _call_groq(self, prompt: str, system_prompt: Optional[str]) -> str:
         try:
@@ -127,8 +132,8 @@ class LLMClient:
                 messages=messages,
             )
             return resp.choices[0].message.content or ""
-        except Exception:
-            return self._mock_completion(prompt, system_prompt)
+        except Exception as e:
+            raise LLMProviderError(f"Groq request failed: {e}") from e
 
     def _call_anthropic(self, prompt: str, system_prompt: Optional[str]) -> str:
         try:
@@ -151,8 +156,8 @@ class LLMClient:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 res = json.loads(resp.read().decode("utf-8"))
                 return res["content"][0]["text"]
-        except Exception:
-            return self._mock_completion(prompt, system_prompt)
+        except Exception as e:
+            raise LLMProviderError(f"Anthropic request failed: {e}") from e
 
     # ── Heuristic Mock Engine (for testing & offline execution) ──
 

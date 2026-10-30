@@ -112,7 +112,7 @@ export interface GeneratedReply {
   product_aware: string;
   edited_reply?: string;
   selected_version: 'value_first' | 'product_aware' | 'custom';
-  status: 'draft' | 'approved' | 'published' | 'rejected';
+  status: 'draft' | 'approved' | 'pending_manual_post' | 'published' | 'rejected';
   published_at?: number;
   platform: string;
   target_url: string;

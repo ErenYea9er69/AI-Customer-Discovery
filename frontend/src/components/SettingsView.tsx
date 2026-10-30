@@ -26,6 +26,7 @@ export const SettingsView: React.FC = () => {
   });
 
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     loadSettings();
@@ -49,9 +50,10 @@ export const SettingsView: React.FC = () => {
         llm_settings: llmSettings,
       });
       setSavedMessage('Settings saved successfully.');
+      setErrorMessage(null);
       setTimeout(() => setSavedMessage(null), 3000);
     } catch (err: any) {
-      alert(`Save error: ${err.message}`);
+      setErrorMessage(`Save error: ${err.message}`);
     }
   };
 
@@ -69,6 +71,7 @@ export const SettingsView: React.FC = () => {
           {savedMessage}
         </div>
       )}
+      {errorMessage && <div className="notice notice-error" role="alert"><span>{errorMessage}</span><button className="btn btn-secondary btn-sm" onClick={() => setErrorMessage(null)}>Dismiss</button></div>}
 
       <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
         {/* Emergency Stop Switch */}

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -56,6 +57,11 @@ class LaunchCampaignRequest(BaseModel):
 class ApproveReplyRequest(BaseModel):
     edited_reply: Optional[str] = None
     selected_version: Optional[str] = "value_first"
+
+
+class UpdateSettingsRequest(BaseModel):
+    posting_settings: Optional[PostingSettings] = None
+    llm_settings: Optional[Dict[str, Any]] = None
 
 
 # ── Endpoints: Business Profile ──
@@ -130,6 +136,16 @@ def get_campaign(campaign_id: str):
     if not c:
         raise HTTPException(status_code=404, detail="Campaign not found")
     return {"campaign": c.model_dump()}
+
+
+@app.post("/api/campaigns/{campaign_id}/cancel")
+def cancel_campaign(campaign_id: str):
+    campaign = storage.get_campaign(campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    if not orchestrator.cancel_campaign(campaign_id):
+        raise HTTPException(status_code=409, detail="Campaign is not running")
+    return {"ok": True, "message": "Cancellation requested."}
 
 
 # ── Endpoints: Leads ──
@@ -226,6 +242,15 @@ def publish_reply(lead_id: str):
     return result
 
 
+@app.post("/api/replies/{lead_id}/confirm-published")
+def confirm_published_reply(lead_id: str):
+    lead = storage.get_lead(lead_id)
+    reply = storage.get_reply_by_lead_id(lead_id)
+    if not lead or not reply:
+        raise HTTPException(status_code=404, detail="Lead or reply not found")
+    return orchestrator.publisher.confirm_manual_post(reply, lead)
+
+
 # ── Endpoints: Analytics ──
 
 @app.get("/api/analytics")
@@ -250,11 +275,11 @@ def get_settings():
 
 
 @app.post("/api/settings")
-def update_settings(data: Dict[str, Any]):
-    if "posting_settings" in data:
-        storage.set_setting("posting_settings", data["posting_settings"])
-    if "llm_settings" in data:
-        storage.set_setting("llm_settings", data["llm_settings"])
+def update_settings(data: UpdateSettingsRequest):
+    if data.posting_settings is not None:
+        storage.set_setting("posting_settings", data.posting_settings.model_dump())
+    if data.llm_settings is not None:
+        storage.set_setting("llm_settings", data.llm_settings)
     return {"ok": True}
 
 
@@ -274,5 +299,14 @@ def export_leads(format: str = Query("json"), min_score: int = Query(0)):
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 if FRONTEND_DIST.exists():
+    @app.get("/{path:path}")
+    def spa_fallback(path: str):
+        if path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
+        requested_file = FRONTEND_DIST / path
+        if requested_file.is_file():
+            return FileResponse(requested_file)
+        return FileResponse(FRONTEND_DIST / "index.html")
+
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="static")
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import threading
 import time
+import os
 from typing import Any, Callable, Dict, List, Optional
 
 from agent_reach.discovery.analytics import DiscoveryAnalytics
@@ -30,7 +31,12 @@ class DiscoveryOrchestrator:
 
     def __init__(self, storage: Optional[DiscoveryStorage] = None):
         self.storage = storage or DiscoveryStorage()
-        self.llm = LLMClient()
+        llm_settings = self.storage.get_setting("llm_settings", {})
+        self.llm = LLMClient(
+            provider=llm_settings.get("provider", os.getenv("LLM_PROVIDER", "mock")),
+            model=llm_settings.get("model") or os.getenv("LLM_MODEL"),
+            api_key=os.getenv("LLM_API_KEY"),
+        )
         self.business_engine = BusinessEngine(self.llm)
         self.search_planner = None  # Lazy init
         self.harvester = CommunityHarvester(self.storage)
@@ -38,6 +44,7 @@ class DiscoveryOrchestrator:
         self.reply_generator = ReplyGenerator(self.llm)
         self.publisher = CommunityPublisher(self.storage)
         self.analytics = DiscoveryAnalytics(self.storage)
+        self.active_tasks: Dict[str, threading.Event] = {}
 
     def run_campaign_sync(
         self,
@@ -45,6 +52,7 @@ class DiscoveryOrchestrator:
         platforms: Optional[List[str]] = None,
         max_leads: int = 15,
         progress_callback: Optional[Callable[[str, int], None]] = None,
+        campaign_id: Optional[str] = None,
     ) -> Campaign:
         """Execute a discovery campaign synchronously."""
         from agent_reach.discovery.search_planner import SearchPlanner
@@ -53,15 +61,18 @@ class DiscoveryOrchestrator:
         if not profile:
             raise ValueError("No business profile found. Please analyze a website or product description first.")
 
-        campaign = Campaign(
-            name=campaign_name,
-            business_profile_id=profile.id,
-            status="running",
-            selected_platforms=platforms or ["reddit", "web"],
-            current_step="Planning customer discovery queries...",
-            progress_percentage=10,
-        )
-        self.storage.save_campaign(campaign)
+        campaign = self.storage.get_campaign(campaign_id) if campaign_id else None
+        if campaign is None:
+            campaign = Campaign(
+                name=campaign_name,
+                business_profile_id=profile.id,
+                status="running",
+                selected_platforms=platforms or ["reddit", "web"],
+                current_step="Planning customer discovery queries...",
+                progress_percentage=10,
+            )
+            self.storage.save_campaign(campaign)
+        cancel_event = self.active_tasks.get(campaign.id)
 
         if progress_callback:
             progress_callback("Planning search queries", 15)
@@ -86,6 +97,11 @@ class DiscoveryOrchestrator:
         current_prog = 30.0
 
         for q in queries:
+            if cancel_event and cancel_event.is_set():
+                campaign.status = "cancelled"
+                campaign.current_step = "Campaign cancelled by operator."
+                self.storage.save_campaign(campaign)
+                return campaign
             if progress_callback:
                 progress_callback(f"Searching {q.platform} for: {q.query[:30]}...", int(current_prog))
 
@@ -128,6 +144,13 @@ class DiscoveryOrchestrator:
 
         return campaign
 
+    def cancel_campaign(self, campaign_id: str) -> bool:
+        event = self.active_tasks.get(campaign_id)
+        if not event:
+            return False
+        event.set()
+        return True
+
     def run_campaign_background(
         self,
         campaign_name: str = "Lead Discovery",
@@ -148,6 +171,8 @@ class DiscoveryOrchestrator:
             progress_percentage=5,
         )
         self.storage.save_campaign(campaign)
+        cancel_event = threading.Event()
+        self.active_tasks[campaign.id] = cancel_event
 
         def _worker():
             try:
@@ -155,11 +180,14 @@ class DiscoveryOrchestrator:
                     campaign_name=campaign_name,
                     platforms=platforms,
                     max_leads=max_leads,
+                    campaign_id=campaign.id,
                 )
             except Exception as e:
                 campaign.status = "failed"
                 campaign.current_step = f"Failed: {str(e)}"
                 self.storage.save_campaign(campaign)
+            finally:
+                self.active_tasks.pop(campaign.id, None)
 
         thread = threading.Thread(target=_worker, daemon=True)
         thread.start()

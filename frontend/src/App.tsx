@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { AlertTriangle, CheckCircle2, LoaderCircle, X } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { OverviewView } from './components/OverviewView';
 import { ProfileView } from './components/ProfileView';
@@ -10,154 +11,49 @@ import { SettingsView } from './components/SettingsView';
 import type { BusinessProfile, LeadQualification } from './types';
 import { api } from './api';
 
+const routeToTab: Record<string, string> = { '/': 'overview', '/overview': 'overview', '/profile': 'profile', '/discovery': 'discovery', '/leads': 'leads', '/reply-studio': 'reply_studio', '/analytics': 'analytics', '/settings': 'settings' };
+const tabToRoute: Record<string, string> = Object.fromEntries(Object.entries(routeToTab).map(([route, tab]) => [tab, route]));
+const currentLocation = () => { const path = window.location.pathname.replace(/\/$/, '') || '/'; return { tab: routeToTab[path] || 'overview', leadId: new URLSearchParams(window.location.search).get('lead') || undefined }; };
+
 export const App: React.FC = () => {
-  const [currentTab, setCurrentTab] = useState<string>('overview');
+  const initial = currentLocation();
+  const [currentTab, setCurrentTab] = useState(initial.tab);
   const [profile, setProfile] = useState<BusinessProfile | null>(null);
   const [leads, setLeads] = useState<LeadQualification[]>([]);
   const [leadCounts, setLeadCounts] = useState<Record<string, number>>({});
-  const [emergencyStop, setEmergencyStop] = useState<boolean>(false);
-  const [replyStudioLeadId, setReplyStudioLeadId] = useState<string | undefined>(undefined);
+  const [emergencyStop, setEmergencyStop] = useState(false);
+  const [replyStudioLeadId, setReplyStudioLeadId] = useState<string | undefined>(initial.leadId);
+  const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
 
   const refreshData = async () => {
-    try {
-      const [prof, leadList, counts, settingsData] = await Promise.all([
-        api.getProfile(),
-        api.listLeads(),
-        api.getLeadCounts(),
-        api.getSettings(),
-      ]);
-      setProfile(prof);
-      setLeads(leadList);
-      setLeadCounts(counts);
-      setEmergencyStop(settingsData.posting_settings?.emergency_stop || false);
-    } catch (e) {
-      console.error(e);
-    }
+    setLoading(true);
+    try { const [prof, leadList, counts, settingsData] = await Promise.all([api.getProfile(), api.listLeads({ limit: 25, offset: 0 }), api.getLeadCounts(), api.getSettings()]); setProfile(prof); setLeads(leadList); setLeadCounts(counts); setEmergencyStop(settingsData.posting_settings?.emergency_stop || false); }
+    catch (error) { setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Could not load workspace data.' }); }
+    finally { setLoading(false); }
   };
+  useEffect(() => { void refreshData(); }, []);
+  useEffect(() => { const onPopState = () => { const next = currentLocation(); setCurrentTab(next.tab); setReplyStudioLeadId(next.leadId); }; window.addEventListener('popstate', onPopState); return () => window.removeEventListener('popstate', onPopState); }, []);
 
-  useEffect(() => {
-    refreshData();
-  }, []);
+  const handleNavigate = (tab: string, leadId?: string) => { const route = tabToRoute[tab] || '/'; const url = new URL(window.location.href); url.pathname = route; if (leadId) url.searchParams.set('lead', leadId); else url.searchParams.delete('lead'); window.history.pushState({}, '', url); setCurrentTab(tab); setReplyStudioLeadId(leadId); };
+  const pageTitles: Record<string, string> = { overview: 'Overview', profile: 'Business Profile', discovery: 'Discovery Engine', leads: 'Leads Inbox', reply_studio: 'Reply Studio', analytics: 'Customer Insights', settings: 'Settings & Safety' };
 
-  const handleNavigate = (tab: string, leadId?: string) => {
-    if (leadId) {
-      setReplyStudioLeadId(leadId);
-    }
-    setCurrentTab(tab);
-  };
-
-  return (
-    <div className="app-container">
-      {/* Precision Navigation Sidebar */}
-      <Sidebar
-        currentTab={currentTab}
-        onSelectTab={setCurrentTab}
-        leadCounts={leadCounts}
-        emergencyStop={emergencyStop}
-      />
-
-      {/* Main Content Pane */}
-      <main className="main-content">
-        {/* Compact App Header */}
-        <header
-          style={{
-            height: '48px',
-            background: '#ffffff',
-            borderBottom: '1px solid var(--border)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '0 1.5rem',
-            flexShrink: 0,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <span style={{ fontWeight: 700, fontSize: '0.9375rem', color: '#0f172a' }}>
-              {currentTab === 'overview' && 'Dashboard Overview'}
-              {currentTab === 'profile' && 'Business Profile & ICP Model'}
-              {currentTab === 'discovery' && 'Customer Discovery Engine'}
-              {currentTab === 'leads' && 'Qualified Opportunities Inbox'}
-              {currentTab === 'reply_studio' && 'AI Reply Studio'}
-              {currentTab === 'analytics' && 'Customer Pain Analytics'}
-              {currentTab === 'settings' && 'Platform Settings & Guardrails'}
-            </span>
-
-            {profile && (
-              <span
-                style={{
-                  fontSize: '0.6875rem',
-                  fontWeight: 600,
-                  padding: '0.125rem 0.5rem',
-                  borderRadius: '4px',
-                  background: 'var(--primary-light)',
-                  color: 'var(--primary)',
-                }}
-              >
-                {profile.name}
-              </span>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', fontSize: '0.75rem', color: '#64748b' }}>
-            <span>
-              Total Leads: <strong style={{ color: '#0f172a' }}>{leadCounts.total || 0}</strong>
-            </span>
-            <span>
-              High Potential: <strong style={{ color: '#10b981' }}>{leadCounts.high_potential || 0}</strong>
-            </span>
-          </div>
-        </header>
-
-        {/* View Switcher */}
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {currentTab === 'overview' && (
-            <OverviewView
-              profile={profile}
-              leads={leads}
-              leadCounts={leadCounts}
-              onNavigate={handleNavigate}
-              onLaunchCampaign={() => setCurrentTab('discovery')}
-            />
-          )}
-
-          {currentTab === 'profile' && (
-            <ProfileView
-              profile={profile}
-              onProfileUpdated={(updated) => {
-                setProfile(updated);
-                refreshData();
-              }}
-            />
-          )}
-
-          {currentTab === 'discovery' && (
-            <DiscoveryView
-              profile={profile}
-              onCampaignFinished={refreshData}
-            />
-          )}
-
-          {currentTab === 'leads' && (
-            <LeadsView
-              leads={leads}
-              onOpenReplyStudio={(id) => handleNavigate('reply_studio', id)}
-            />
-          )}
-
-          {currentTab === 'reply_studio' && (
-            <ReplyStudioView
-              initialLeadId={replyStudioLeadId}
-              leads={leads}
-            />
-          )}
-
-          {currentTab === 'analytics' && <AnalyticsView />}
-
-          {currentTab === 'settings' && <SettingsView />}
-        </div>
-      </main>
-    </div>
-  );
+  return <div className="app-container">
+    <Sidebar currentTab={currentTab} onSelectTab={handleNavigate} leadCounts={leadCounts} emergencyStop={emergencyStop} />
+    <main className="main-content">
+      <header className="topbar"><div className="breadcrumb"><span>AgentReach</span><span className="breadcrumb-separator">/</span><strong>{pageTitles[currentTab]}</strong>{profile && <span className="workspace-chip">{profile.name}</span>}</div><div className="topbar-status"><span className={`status-dot ${emergencyStop ? 'status-dot-red' : 'status-dot-green'}`} />{emergencyStop ? 'Publishing stopped' : 'Workspace ready'}</div></header>
+      {notice && <div className={`toast toast-${notice.type}`} role={notice.type === 'error' ? 'alert' : 'status'}><span>{notice.type === 'error' ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}</span><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="Dismiss notification"><X size={15} /></button></div>}
+      {loading ? <div className="loading-state"><LoaderCircle className="spin" size={22} /><span>Loading your discovery workspace…</span></div> : <div className="view-scroll">
+        {currentTab === 'overview' && <OverviewView profile={profile} leads={leads} leadCounts={leadCounts} onNavigate={handleNavigate} onLaunchCampaign={() => handleNavigate('discovery')} />}
+        {currentTab === 'profile' && <ProfileView profile={profile} onProfileUpdated={(updated) => { setProfile(updated); void refreshData(); }} />}
+        {currentTab === 'discovery' && <DiscoveryView profile={profile} onCampaignFinished={refreshData} />}
+        {currentTab === 'leads' && <LeadsView leads={leads} onOpenReplyStudio={(id) => handleNavigate('reply_studio', id)} />}
+        {currentTab === 'reply_studio' && <ReplyStudioView initialLeadId={replyStudioLeadId} leads={leads} />}
+        {currentTab === 'analytics' && <AnalyticsView />}
+        {currentTab === 'settings' && <SettingsView />}
+      </div>}
+    </main>
+  </div>;
 };
 
 export default App;

@@ -74,9 +74,9 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({ initialLeadId,
     try {
       const updated = await api.approveReply(selectedLeadId, editedText, selectedVersion);
       setReply(updated);
-      alert('Reply approved! Ready to publish or copy.');
+      setPublishStatus('Reply approved. It is ready to publish or copy.');
     } catch (err: any) {
-      alert(`Approval error: ${err.message}`);
+      setPublishStatus(`Approval error: ${err.message}`);
     }
   };
 
@@ -85,8 +85,8 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({ initialLeadId,
     try {
       const res = await api.publishReply(selectedLeadId);
       if (res.success) {
-        setPublishStatus(res.message || 'Published successfully!');
-        if (reply) setReply({ ...reply, status: 'published' });
+        setPublishStatus(res.message || 'Reply copied. Confirm once you have submitted it.');
+        if (reply) setReply({ ...reply, status: 'pending_manual_post' });
         // Also copy to clipboard for convenience
         navigator.clipboard.writeText(editedText);
         setCopied(true);
@@ -96,6 +96,17 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({ initialLeadId,
       }
     } catch (err: any) {
       setPublishStatus(`Error: ${err.message}`);
+    }
+  };
+
+  const handleConfirmPublished = async () => {
+    if (!selectedLeadId) return;
+    const res = await api.confirmPublished(selectedLeadId);
+    if (res.success) {
+      setPublishStatus(res.message || 'Publication confirmed and recorded.');
+      if (reply) setReply({ ...reply, status: 'published' });
+    } else {
+      setPublishStatus(`Could not confirm: ${res.reason || 'Try again.'}`);
     }
   };
 
@@ -140,12 +151,14 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({ initialLeadId,
               className={`badge ${
                 reply.status === 'published'
                   ? 'badge-high'
+                  : reply.status === 'pending_manual_post'
+                  ? 'badge-amber'
                   : reply.status === 'approved'
                   ? 'badge-medium'
                   : 'badge-low'
               }`}
             >
-              Status: {reply.status}
+                Status: {reply.status === 'pending_manual_post' ? 'awaiting confirmation' : reply.status}
             </span>
           </div>
         )}
@@ -299,9 +312,15 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({ initialLeadId,
                 <button className="btn btn-secondary" onClick={handleApprove}>
                   <CheckCircle size={16} /> Approve Reply
                 </button>
-                <button className="btn btn-primary" onClick={handlePublish}>
-                  <Send size={16} /> Approve & Publish
-                </button>
+                {reply?.status === 'pending_manual_post' ? (
+                  <button className="btn btn-primary" onClick={handleConfirmPublished}>
+                    <CheckCircle size={16} /> Confirm posted
+                  </button>
+                ) : (
+                  <button className="btn btn-primary" onClick={handlePublish}>
+                    <Send size={16} /> Approve & Publish
+                  </button>
+                )}
               </div>
             </div>
           </div>
