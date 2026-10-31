@@ -14,7 +14,7 @@ import subprocess
 import sys
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 from agent_reach import __version__
@@ -180,9 +180,10 @@ def run_checks(names: Optional[List[str]] = None, timeout: float = 60.0, search_
     codes: Dict[tuple, str] = {}
     for r in results:
         key = (r["channel"], r["action"])
-        by_action[key] = by_action.get(key, False) or r["passed"]
-        if not r["passed"] and key not in codes:
-            codes[key] = r["error"]["code"]
+        by_action[key] = bool(by_action.get(key, False) or r.get("passed"))
+        if not r.get("passed") and key not in codes:
+            err_info = r.get("error")
+            codes[key] = str(err_info["code"]) if isinstance(err_info, dict) and "code" in err_info else ""
     signatures = {ch.name: fingerprint(ch.name) for ch in selected}
     def save_checks(data):
         for ch in selected:
@@ -705,7 +706,7 @@ def setup() -> dict:
     from agent_reach.utils.paths import PrivatePathError, atomic_write_private_text
 
     markdown = installation_report(result)
-    report = {"markdown": markdown, "path": None}
+    report: Dict[str, Any] = {"markdown": markdown, "path": None}
     try:
         state.remember_path(state.root() / "installation-report.md", "installation receipt")
         report["path"] = str(atomic_write_private_text(state.root() / "installation-report.md", markdown))
