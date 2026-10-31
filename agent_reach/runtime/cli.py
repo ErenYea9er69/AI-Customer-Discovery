@@ -45,6 +45,8 @@ HELP = """agent-reach — internet access for AI agents (all output is JSON)
 
 For agents:
   agent-reach channels                    list channels, actions, params
+  agent-reach dashboard                   launch web dashboard UI at http://127.0.0.1:8000
+  agent-reach mcp                         run FastMCP server over stdio for Claude, Cursor, Antigravity
   agent-reach <channel> <action> [args]   e.g. agent-reach bilibili search python
   agent-reach read <url>                  read a link with the matching channel
   Search/read try declared public web routes first; --backend selects a site tool
@@ -526,6 +528,24 @@ def _cmd_browser(args: Sequence[str]) -> int:
         return _bad_input(None, "browser", str(exc))
 
 
+def _cmd_mcp(args: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="agent-reach mcp",
+        description="Run Model Context Protocol (MCP) FastMCP server over stdio for AI assistants.",
+    )
+    parser.add_argument(
+        "--transport",
+        default="stdio",
+        choices=["stdio"],
+        help="MCP transport protocol (default: stdio)",
+    )
+    ns = parser.parse_args(list(args))
+    from agent_reach.mcp.server import main as mcp_main
+
+    mcp_main()
+    return 0
+
+
 def main(argv: Sequence[str]) -> int:
     global _SHOW_NOTICE
 
@@ -554,6 +574,8 @@ def main(argv: Sequence[str]) -> int:
         return _cmd_doctor(rest)
     if head == "skill":
         return _cmd_skill(rest)
+    if head == "mcp":
+        return _cmd_mcp(rest)
     if head == "dashboard":
         from agent_reach.discovery.cli import cmd_dashboard
         return cmd_dashboard(rest)
