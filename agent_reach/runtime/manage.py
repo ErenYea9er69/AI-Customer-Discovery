@@ -416,7 +416,10 @@ def render_skill(lang: Optional[str] = None) -> str:
     from importlib.resources import files
 
     lang = lang or _skill_lang()
-    template = files("agent_reach").joinpath("skill").joinpath("SKILL_en.md" if lang == "en" else "SKILL.md").read_text("utf-8")
+    skill_file = files("agent_reach").joinpath("skill").joinpath("SKILL_en.md" if lang == "en" else "SKILL.md")
+    if not skill_file.is_file():
+        skill_file = files("agent_reach").joinpath("skill").joinpath("SKILL.md")
+    template = skill_file.read_text("utf-8")
     labels = {"default": "default", "optional": "optional", "experimental": "experimental"}
     rows = ["| channel | level | actions | login |", "|---|---|---|---|"]
     for ch in _channels():
@@ -951,7 +954,16 @@ def uninstall(dry_run: bool = False) -> dict:
 
 # ── configure ──
 
-CONFIG_KEYS = {"groq-key": "groq_api_key", "openai-key": "openai_api_key", "proxy": "proxy", "github-token": "github_token",
+CONFIG_KEYS = {
+    "groq-key": "groq_api_key",
+    "openai-key": "openai_api_key",
+    "gemini-key": "gemini_api_key",
+    "anthropic-key": "anthropic_api_key",
+    "deepseek-key": "deepseek_api_key",
+    "proxy": "proxy",
+    "github-token": "github_token",
+    "reddit-client-id": "reddit_client_id",
+    "reddit-client-secret": "reddit_client_secret",
 }
 
 

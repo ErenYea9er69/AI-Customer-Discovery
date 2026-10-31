@@ -26,12 +26,14 @@ DEFAULT_MODELS = {
     "gemini": "gemini-2.5-flash",
     "groq": "llama-3.3-70b-versatile",
     "anthropic": "claude-sonnet-5-5",
+    "deepseek": "deepseek-chat",
 }
 _KEY_ENV = {
     "groq": "GROQ_API_KEY",
     "openai": "OPENAI_API_KEY",
     "gemini": "GEMINI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
 }
 _TIMEOUT_SECONDS = 60
 _RETRY_STATUS = {429, 500, 502, 503, 504}
@@ -57,17 +59,35 @@ class LLMClient:
         chosen = (provider or os.getenv("LLM_PROVIDER") or "").strip().lower()
         if not chosen:
             # Pick the first provider that has a key. Leave empty when none does.
-            for name in ("groq", "openai", "gemini", "anthropic"):
-                if os.getenv(_KEY_ENV[name]):
+            for name in ("groq", "openai", "gemini", "anthropic", "deepseek"):
+                if self._resolve_api_key(name):
                     chosen = name
                     break
         self.provider = chosen
 
         self.api_key = api_key or None
-        if not self.api_key and self.provider in _KEY_ENV:
-            self.api_key = os.getenv(_KEY_ENV[self.provider]) or os.getenv("LLM_API_KEY")
+        if not self.api_key and self.provider:
+            self.api_key = self._resolve_api_key(self.provider) or os.getenv("LLM_API_KEY")
 
         self.model = model or os.getenv("LLM_MODEL") or DEFAULT_MODELS.get(self.provider)
+
+    @staticmethod
+    def _resolve_api_key(provider: str) -> Optional[str]:
+        if provider == "gemini":
+            val = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            if val:
+                return val
+        elif provider in _KEY_ENV:
+            val = os.getenv(_KEY_ENV[provider])
+            if val:
+                return val
+        # Check ~/.agent-reach/config.yaml
+        try:
+            from agent_reach.config import Config
+            cfg = Config(read_only=True)
+            return cfg.get(f"{provider}_api_key") or cfg.get(f"{provider}-key")
+        except Exception:
+            return None
 
     @property
     def is_configured(self) -> bool:
@@ -89,7 +109,7 @@ class LLMClient:
             return mock_completion(prompt, system_prompt)
         if not self.provider:
             raise LLMNotConfiguredError(
-                "No LLM is configured. Set LLM_PROVIDER (openai, gemini, groq, anthropic) "
+                "No LLM is configured. Set LLM_PROVIDER (openai, gemini, groq, anthropic, deepseek) "
                 "and an API key, or choose a provider in Settings."
             )
         if self.provider not in DEFAULT_MODELS:
@@ -101,9 +121,11 @@ class LLMClient:
             return self._call_openai_compatible(prompt, system_prompt, json_mode, base_url=None)
         if self.provider == "groq":
             return self._call_openai_compatible(prompt, system_prompt, json_mode, base_url="groq")
+        if self.provider == "deepseek":
+            return self._call_openai_compatible(prompt, system_prompt, json_mode, base_url="https://api.deepseek.com")
         if self.provider == "gemini":
             return self._call_gemini(prompt, system_prompt, json_mode)
-        return self._call_anthropic(prompt, system_prompt)
+        return self._call_anthropic(prompt, system_prompt, json_mode)
 
     def complete_json(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
         """Request a JSON object. Retries once when the reply is not valid JSON."""
@@ -146,13 +168,32 @@ class LLMClient:
     ) -> str:
         try:
             if base_url == "groq":
-                from groq import Groq
+                try:
+                    from groq import Groq
 
-                client = Groq(api_key=self.api_key, timeout=_TIMEOUT_SECONDS, max_retries=2)
+                    client = Groq(api_key=self.api_key, timeout=_TIMEOUT_SECONDS, max_retries=2)
+                except ImportError:
+                    from openai import OpenAI
+
+                    client = OpenAI(
+                        api_key=self.api_key,
+                        base_url="https://api.groq.com/openai/v1",
+                        timeout=_TIMEOUT_SECONDS,
+                        max_retries=2,
+                    )
             else:
                 from openai import OpenAI
 
-                client = OpenAI(api_key=self.api_key, timeout=_TIMEOUT_SECONDS, max_retries=2)
+                target_base_url = base_url or os.getenv("OPENAI_BASE_URL")
+                client_kwargs: Dict[str, Any] = {
+                    "api_key": self.api_key,
+                    "timeout": _TIMEOUT_SECONDS,
+                    "max_retries": 2,
+                }
+                if target_base_url:
+                    client_kwargs["base_url"] = target_base_url
+                client = OpenAI(**client_kwargs)
+
             messages = []
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
@@ -194,14 +235,23 @@ class LLMClient:
             url, {"Content-Type": "application/json", "x-goog-api-key": str(self.api_key)}, payload
         )
         try:
-            return data["candidates"][0]["content"]["parts"][0]["text"]
+            candidate = data.get("candidates", [{}])[0]
+            parts = candidate.get("content", {}).get("parts", [])
+            # Filter out thinking parts if present, extract actual text
+            text_parts = [p.get("text", "") for p in parts if not p.get("thought") and p.get("text")]
+            if not text_parts:
+                text_parts = [p.get("text", "") for p in parts if p.get("text")]
+            result_text = "".join(text_parts).strip()
+            if not result_text:
+                raise LLMProviderError("Gemini returned no text (blocked or empty).")
+            return result_text
         except (KeyError, IndexError, TypeError) as exc:
             raise LLMProviderError("Gemini returned no text (blocked or empty).") from exc
 
-    def _call_anthropic(self, prompt: str, system_prompt: Optional[str]) -> str:
+    def _call_anthropic(self, prompt: str, system_prompt: Optional[str], json_mode: bool = False) -> str:
         payload: Dict[str, Any] = {
             "model": self.model,
-            "max_tokens": 4096,
+            "max_tokens": 8192,
             "messages": [{"role": "user", "content": prompt}],
         }
         if system_prompt:
@@ -216,6 +266,6 @@ class LLMClient:
             payload,
         )
         try:
-            return "".join(b.get("text", "") for b in data["content"] if b.get("type") == "text")
+            return "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
         except (KeyError, TypeError) as exc:
             raise LLMProviderError("Anthropic returned no text.") from exc

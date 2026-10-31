@@ -8,7 +8,7 @@ import tempfile
 
 os.environ["AGENT_REACH_DISCOVERY_DB"] = os.path.join(tempfile.mkdtemp(), "test.db")
 for key in ("LLM_PROVIDER", "LLM_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY",
-            "ANTHROPIC_API_KEY", "AGENT_REACH_API_KEY"):
+            "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "AGENT_REACH_API_KEY"):
     os.environ.pop(key, None)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent

@@ -226,10 +226,11 @@ export const SettingsView: React.FC = () => {
                 onChange={(e) => {
                   const p = e.target.value;
                   const defaultModels: Record<string, string> = {
-                    openai: 'gpt-4o',
                     gemini: 'gemini-2.5-flash',
-                    groq: 'llama-3.3-70b-versatile',
+                    openai: 'gpt-4o',
                     anthropic: 'claude-sonnet-5-5',
+                    groq: 'llama-3.3-70b-versatile',
+                    deepseek: 'deepseek-chat',
                     mock: 'mock',
                   };
                   setLlmSettings({
@@ -239,10 +240,11 @@ export const SettingsView: React.FC = () => {
                   });
                 }}
               >
-                <option value="gemini">Google Gemini (gemini-2.5-flash)</option>
-                <option value="openai">OpenAI (gpt-4o)</option>
-                <option value="groq">Groq (llama-3.3-70b-versatile)</option>
-                <option value="anthropic">Anthropic (claude-sonnet-5-5)</option>
+                <option value="gemini">Google Gemini (gemini-2.5-flash, gemini-2.0-flash)</option>
+                <option value="openai">OpenAI (gpt-4o, gpt-4o-mini, o3-mini)</option>
+                <option value="anthropic">Anthropic (claude-sonnet-5-5, claude-3-7-sonnet)</option>
+                <option value="groq">Groq (llama-3.3-70b-versatile, llama-3.1-8b)</option>
+                <option value="deepseek">DeepSeek (deepseek-chat, deepseek-reasoner)</option>
                 <option value="mock">Local Heuristic Mock (Testing Only)</option>
               </select>
             </div>
@@ -259,6 +261,32 @@ export const SettingsView: React.FC = () => {
                 value={llmSettings.model || ''}
                 onChange={(e) => setLlmSettings({ ...llmSettings, model: e.target.value })}
               />
+              {(() => {
+                const modelPresets: Record<string, string[]> = {
+                  gemini: ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'],
+                  openai: ['gpt-4o', 'gpt-4o-mini', 'o3-mini'],
+                  anthropic: ['claude-sonnet-5-5', 'claude-3-7-sonnet-latest', 'claude-3-5-sonnet-latest'],
+                  groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
+                  deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+                };
+                const presets = modelPresets[llmSettings.provider];
+                if (!presets) return null;
+                return (
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
+                    {presets.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        className={`btn btn-xs ${llmSettings.model === preset ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '12px' }}
+                        onClick={() => setLlmSettings({ ...llmSettings, model: preset })}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
@@ -280,6 +308,16 @@ export const SettingsView: React.FC = () => {
                   ? '•••••••••••••••• (Leave blank to keep current key)'
                   : llmSettings.provider === 'mock'
                   ? 'Not needed for mock mode'
+                  : llmSettings.provider === 'gemini'
+                  ? 'e.g. AIzaSy... (GEMINI_API_KEY or GOOGLE_API_KEY)'
+                  : llmSettings.provider === 'openai'
+                  ? 'e.g. sk-proj-... (OPENAI_API_KEY)'
+                  : llmSettings.provider === 'anthropic'
+                  ? 'e.g. sk-ant-... (ANTHROPIC_API_KEY)'
+                  : llmSettings.provider === 'groq'
+                  ? 'e.g. gsk_... (GROQ_API_KEY)'
+                  : llmSettings.provider === 'deepseek'
+                  ? 'e.g. sk-... (DEEPSEEK_API_KEY)'
                   : 'Enter API key…'
               }
               value={llmSettings.api_key || ''}

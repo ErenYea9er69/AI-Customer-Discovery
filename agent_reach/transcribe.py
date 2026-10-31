@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import ipaddress
 import math
+import os
 import re
 import socket
 import subprocess
@@ -377,13 +378,18 @@ def transcribe_chunk(
         )
 
     info = PROVIDERS[provider]
+    model = (
+        cfg.get(f"{provider}_whisper_model")
+        or os.getenv(f"{provider.upper()}_WHISPER_MODEL")
+        or info["model"]
+    )
     with chunk.open("rb") as fh:
         try:
             resp = requests.post(
                 info["endpoint"],
                 headers={"Authorization": f"Bearer {key}"},
                 files={"file": (chunk.name, fh, "audio/m4a")},
-                data={"model": info["model"], "response_format": "text"},
+                data={"model": model, "response_format": "text"},
                 timeout=timeout,
             )
         except requests.RequestException as e:

@@ -8,5 +8,5 @@ Read this reference when an update fails, the browser will not start, a channel 
 - **Diagnose Failure Stages:** Distinguish dependency downloading, browser connection, authentication, page rendering, and platform rate-limiting; never mislabel a network timeout as expired login.
 - **Upstream Tool Errors:** Note the error and version, and run `agent-reach update` once after user consent; never modify upstream tool files manually, and never retry in a loop.
 - **Rate Limits & Blocks:** On `PLATFORM_BLOCKED`, `RATE_LIMITED`, `NEED_LOGIN`, or `BUSY`, stop the current attempt and wait for user resolution; do not reopen windows repeatedly.
-- **Keys & Proxies:** `agent-reach configure groq-key | openai-key | proxy | github-token`; values must be provided directly by the user.
+- **Keys & Proxies:** `agent-reach configure groq-key | openai-key | gemini-key | anthropic-key | deepseek-key | proxy | github-token | reddit-client-id | reddit-client-secret`; values must be provided directly by the user.
 - **Uninstall:** Run `agent-reach uninstall --dry-run` first to show the user what will be removed, then run `agent-reach uninstall` once they confirm. Only files and tools installed by Agent Reach are removed; user files and personal browsers remain untouched.

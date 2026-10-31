@@ -66,7 +66,13 @@ class CommunityHarvester:
     ):
         self.storage = storage or DiscoveryStorage()
         self.session = session or requests.Session()
-        self.reddit_meta = reddit_meta or RedditMeta(session=self.session)
+        if reddit_meta:
+            self.reddit_meta = reddit_meta
+        else:
+            posting = self.storage.get_setting("posting_settings", {}) or {}
+            r_id = posting.get("reddit_client_id")
+            r_sec = posting.get("reddit_client_secret")
+            self.reddit_meta = RedditMeta(client_id=r_id, client_secret=r_sec, session=self.session)
         self.exclude_hosts: List[str] = []   # the user's own site and competitor sites
         self.diagnostics: Counter = Counter()
 
@@ -474,7 +480,18 @@ class CommunityHarvester:
         clean = re.sub(r"\b(is|state|created):\S+", "", query).replace('"', "").strip()
         q = f"{clean} is:issue is:open archived:false created:>={since}"
         headers = {"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"}
-        token = os.getenv("GITHUB_TOKEN")
+        token = (
+            os.getenv("GITHUB_TOKEN")
+            or os.getenv("GH_TOKEN")
+            or (self.storage.get_setting("posting_settings", {}) or {}).get("github_token")
+        )
+        if not token:
+            try:
+                from agent_reach.config import Config
+
+                token = Config(read_only=True).get("github_token")
+            except Exception:
+                pass
         if token:
             headers["Authorization"] = f"Bearer {token}"
         try:

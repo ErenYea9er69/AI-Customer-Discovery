@@ -196,6 +196,15 @@ class RedditMeta:
     ):
         self.client_id = client_id or os.getenv("REDDIT_CLIENT_ID")
         self.client_secret = client_secret or os.getenv("REDDIT_CLIENT_SECRET")
+        if not (self.client_id and self.client_secret):
+            try:
+                from agent_reach.config import Config
+
+                cfg = Config(read_only=True)
+                self.client_id = self.client_id or cfg.get("reddit_client_id")
+                self.client_secret = self.client_secret or cfg.get("reddit_client_secret")
+            except Exception:
+                pass
         self.session = session or requests.Session()
         self._token: Optional[str] = None
         self._token_expiry = 0.0

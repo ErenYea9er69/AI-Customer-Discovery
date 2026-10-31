@@ -270,6 +270,32 @@ def test_llm_client_never_falls_back_to_mock():
     assert LLMClient(provider="mock").is_mock
 
 
+def test_llm_client_deepseek_configured():
+    c = LLMClient(provider="deepseek", api_key="sk-test-deepseek")
+    assert c.is_configured
+    assert c.model == "deepseek-chat"
+
+
+def test_llm_client_gemini_thinking_parsing(monkeypatch):
+    c = LLMClient(provider="gemini", api_key="test-key")
+    # Mock _post_json to simulate Gemini 2.0 / 2.5 thinking response
+    mock_resp = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {"thought": True, "text": "Let me think about this step by step..."},
+                        {"text": "Here is the final answer."},
+                    ]
+                }
+            }
+        ]
+    }
+    monkeypatch.setattr(c, "_post_json", lambda url, headers, payload: mock_resp)
+    res = c.complete("test prompt")
+    assert res == "Here is the final answer."
+
+
 # ── Replies ──
 
 def test_reply_generator_enforces_rules(profile):

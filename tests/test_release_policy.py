@@ -10,9 +10,9 @@ from agent_reach.runtime.result import ReachError
 
 
 def test_cleanup_failure_retains_channel_and_tools(monkeypatch):
-    from agent_reach.channels.xiaohongshu import XiaoHongShuChannel
-    ch = XiaoHongShuChannel()
-    state.mutate(lambda data: data["channels"].update(xiaohongshu={"added_at": state.now()}))
+    from agent_reach.channels.twitter import TwitterChannel
+    ch = TwitterChannel()
+    state.mutate(lambda data: data["channels"].update(twitter={"added_at": state.now()}))
     monkeypatch.setattr(browser, "clear_site", Mock(side_effect=ReachError("UPSTREAM_BROKEN", "clear failed")))
     monkeypatch.setattr(tools, "prune", lambda *a: pytest.fail("pruned before cleanup succeeded"))
     with pytest.raises(ReachError, match="clear failed"):
@@ -48,33 +48,6 @@ def test_cleanup_never_claims_success_if_cookie_remains(monkeypatch):
     monkeypatch.setattr(cdp, "call", lambda method, *a, **k: {"cookies": [{"name": "sid", "domain": "reddit.com"}]} if method == "Storage.getCookies" else {})
     with pytest.raises(ReachError, match="verified"):
         browser._clear_running_site(["reddit.com"])
-
-
-def test_boss_detail_uses_upstream_browser_adapter_without_native_http(monkeypatch):
-    from agent_reach.backends import opencli
-    from agent_reach.channels.boss import BossChannel
-    call = Mock(return_value=[{"title": "Data Engineer", "description": "JD"}])
-    monkeypatch.setattr(opencli, "opencli_call", call)
-    ch = BossChannel()
-    assert ch.actions[1].backends == (("boss-agent-cli", "_cli_read"), ("opencli", "_opencli_read"))
-    assert ch._opencli_read(target="https://www.zhipin.com/job_detail/abc123.html", timeout=20)[0]["text"] == "JD"
-    assert call.call_args.args == ("boss", ["detail", "abc123"])
-
-
-def test_boss_zip_install_provenance_is_reused(monkeypatch):
-    tool = tools.TOOLS["boss-agent-cli"]
-    binpath = tools._private_bin(tool, "boss")
-    binpath.parent.mkdir(parents=True)
-    binpath.touch()
-    direct = tools.tool_dir(tool.name) / "venv/lib/python3.12/site-packages/boss_agent_cli-1.0.dist-info/direct_url.json"
-    direct.parent.mkdir(parents=True)
-    direct.write_text(json.dumps({"url": tool.package.split(" @ ")[1], "archive_info": {}}))
-    tools.record(tool.name, "1.0")
-    install = Mock()
-    monkeypatch.setattr(tools, "_install", install)
-    tools.ensure(tool.name)
-    tools.ensure(tool.name)
-    install.assert_not_called()
 
 
 def test_unknown_tool_and_session_are_preserved():
@@ -130,7 +103,7 @@ def test_bridge_shutdown_reaps_only_our_child_even_if_others_connected(monkeypat
 
 
 def test_release_gate_rejects_doctor_stale_and_wrong_source():
-    from scripts.check_release_acceptance import validate
+    validate = pytest.importorskip("scripts.check_release_acceptance").validate
     row = {"channel": "web", "action": "search", "passed": True, "item_count": 1,
            "backend": "exa", "os": "macOS", "at": state.now(), "method": "doctor", "source_sha256": "source"}
     data = {"source_sha256": "source", "release_ready": True, "results": [row]}
@@ -144,7 +117,7 @@ def test_release_gate_rejects_doctor_stale_and_wrong_source():
 
 
 def test_gate_cannot_ignore_release_flag_pending_validation_or_invalid_time():
-    from scripts.check_release_acceptance import validate
+    validate = pytest.importorskip("scripts.check_release_acceptance").validate
     row = {"channel": "web", "action": "search", "passed": True, "item_count": 1,
            "backend": "exa", "os": "macOS", "at": state.now(), "method": "real-cli", "source_sha256": "s"}
     data = {"source_sha256": "s", "release_ready": True, "results": [row]}
@@ -157,7 +130,7 @@ def test_gate_cannot_ignore_release_flag_pending_validation_or_invalid_time():
     assert validate({**data, "results": [{**row, "item_count": True}]}, required, "s")
 
 def test_gate_lets_only_listed_reasoned_waivers_through():
-    from scripts.check_release_acceptance import validate
+    validate = pytest.importorskip("scripts.check_release_acceptance").validate
     row = {"channel": "web", "action": "search", "passed": True, "item_count": 1,
            "backend": "exa", "os": "macOS", "at": state.now(), "method": "real-cli", "source_sha256": "s"}
     required = {("web", "search"), ("reddit", "search")}

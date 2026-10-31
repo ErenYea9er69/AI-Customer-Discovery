@@ -82,6 +82,9 @@ def isolated_home(tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(home / "AppData" / "Roaming"))
     monkeypatch.setenv("LOCALAPPDATA", str(home / "AppData" / "Local"))
     monkeypatch.delenv("OPENCLAW_HOME", raising=False)
+    for key in ("LLM_PROVIDER", "LLM_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY",
+                "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "AGENT_REACH_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
     # never start the background release check from tests
     monkeypatch.setenv("AGENT_REACH_NO_UPDATE_CHECK", "1")
     # Public-first routing must not turn adapter unit tests into live requests.
