@@ -181,3 +181,49 @@ def test_mcp_control_dashboard(mock_is_port, mock_ensure):
 
     res_launch = reach_control_dashboard(action="launch", port=8000, open_browser=False)
     assert res_launch["status"] == "already_running"
+
+
+def test_mcp_stdio_jsonrpc_handshake():
+    """Verify live STDIO JSON-RPC handshake (initialize + tools/list)."""
+    import subprocess
+    import sys
+    import json
+
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "agent_reach.mcp.server"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        init_req = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "test-client", "version": "1.0"},
+            },
+        }
+        proc.stdin.write(json.dumps(init_req) + "\n")
+        proc.stdin.flush()
+        init_line = proc.stdout.readline()
+        init_data = json.loads(init_line)
+        assert init_data["result"]["serverInfo"]["name"] == "AgentReach"
+
+        tools_req = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
+        proc.stdin.write(json.dumps(tools_req) + "\n")
+        proc.stdin.flush()
+        tools_line = proc.stdout.readline()
+        tools_data = json.loads(tools_line)
+        tool_names = [t["name"] for t in tools_data["result"]["tools"]]
+        assert "reach_harvest_threads" in tool_names
+        assert "reach_save_lead" in tool_names
+        assert "reach_run_autonomous_batch" in tool_names
+        assert "reach_control_dashboard" in tool_names
+    finally:
+        proc.stdin.close()
+        proc.terminate()
+
