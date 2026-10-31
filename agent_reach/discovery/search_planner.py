@@ -20,11 +20,16 @@ EXPRESSION_TEMPLATES = [
 ]
 
 SUBREDDIT_MAP = {
-    "developer": ["r/programming", "r/devops", "r/webdev", "r/softwaredevelopment", "r/SideProject"],
-    "b2b": ["r/SaaS", "r/startups", "r/Entrepreneur", "r/smallbusiness"],
-    "marketing": ["r/marketing", "r/growthhacking", "r/sales"],
-    "design": ["r/UI_Design", "r/web_design", "r/userexperience"],
-    "productivity": ["r/productivity", "r/notion", "r/automation"],
+    "developer": ["r/programming", "r/devops", "r/webdev", "r/softwaredevelopment", "r/SideProject", "r/coding", "r/learnprogramming", "r/golang", "r/Python", "r/javascript"],
+    "b2b": ["r/SaaS", "r/startups", "r/Entrepreneur", "r/smallbusiness", "r/business", "r/GrowthHacking", "r/sales"],
+    "marketing": ["r/marketing", "r/growthhacking", "r/sales", "r/digitalmarketing", "r/content_marketing", "r/SEO", "r/socialmediamarketing"],
+    "design": ["r/UI_Design", "r/web_design", "r/userexperience", "r/graphic_design", "r/FigmaDesign", "r/ProductManagement"],
+    "productivity": ["r/productivity", "r/notion", "r/automation", "r/GetDisciplined", "r/time_management", "r/selfimprovement", "r/zenhabits"],
+    "freelance": ["r/freelance", "r/Freelancers", "r/productivity", "r/digitalnomad", "r/Upwork", "r/WorkOnline", "r/fiverr", "r/consulting"],
+    "ecommerce": ["r/ecommerce", "r/shopify", "r/dropship", "r/FulfillmentByAmazon", "r/smallbusiness"],
+    "finance": ["r/personalfinance", "r/FinancialPlanning", "r/smallbusiness", "r/Accounting", "r/Bookkeeping"],
+    "ai_tools": ["r/ArtificialInteligence", "r/ChatGPT", "r/OpenAI", "r/Productivity", "r/SideProject", "r/LocalLLaMA", "r/ClaudeAI"],
+    "creators": ["r/contentcreation", "r/YouTube", "r/podcasting", "r/videography", "r/Blogging", "r/freelance"],
 }
 
 
@@ -39,20 +44,19 @@ class SearchPlanner:
         queries: List[SearchQuery] = []
 
         # Determine target platforms based on profile
-        platforms = ["reddit", "web"]
+        platforms = ["reddit", "quora", "twitter", "web"]
         is_dev_tool = any(
             dev_term in f"{profile.industry} {profile.niche} {profile.icp}".lower()
             for dev_term in ["developer", "github", "engineering", "code", "software", "api", "devops"]
         )
         if is_dev_tool:
             platforms.append("github")
-            platforms.append("v2ex")
 
         # Select relevant subreddits
         target_subs = self._select_target_subreddits(profile, is_dev_tool)
 
         # 1. Generate heuristic rule-based high-intent queries
-        # Pain expressions
+        # Pain expressions across communities
         for prob in profile.problems_solved[:3]:
             short_prob = self._shorten_phrase(prob)
             queries.append(
@@ -72,6 +76,22 @@ class SearchPlanner:
                     rationale=f"Indirect problem search where user seeks solutions: {prob}",
                 )
             )
+            queries.append(
+                SearchQuery(
+                    query=f'{short_prob}',
+                    intent_type="tool_request",
+                    platform="quora",
+                    rationale=f"Questions and solutions sought on Quora for: {prob}",
+                )
+            )
+            queries.append(
+                SearchQuery(
+                    query=f'{short_prob} cannot focus OR miss deadlines',
+                    intent_type="frustration",
+                    platform="twitter",
+                    rationale=f"Real-time customer vents and struggles on X/Twitter: {prob}",
+                )
+            )
 
         # Competitor alternatives
         for comp in profile.competitors_and_alternatives[:2]:
@@ -82,6 +102,14 @@ class SearchPlanner:
                     platform="reddit",
                     target_community=target_subs[1] if len(target_subs) > 1 else target_subs[0],
                     rationale=f"High buying intent from users dissatisfied with competitor: {comp}",
+                )
+            )
+            queries.append(
+                SearchQuery(
+                    query=f'alternative to {comp}',
+                    intent_type="alternative",
+                    platform="quora",
+                    rationale=f"Quora alternative recommendation requests: {comp}",
                 )
             )
 
@@ -122,19 +150,42 @@ class SearchPlanner:
                 seen.add(normalized)
                 unique_queries.append(q)
 
-        return unique_queries[:12]
+        return unique_queries[:16]
 
     def _select_target_subreddits(self, profile: BusinessProfile, is_dev_tool: bool) -> List[str]:
+        matched_subs: List[str] = []
         if is_dev_tool:
-            return SUBREDDIT_MAP["developer"]
-        text = f"{profile.industry} {profile.niche} {profile.icp}".lower()
-        if "marketing" in text or "growth" in text:
-            return SUBREDDIT_MAP["marketing"]
-        if "design" in text or "ui" in text or "ux" in text:
-            return SUBREDDIT_MAP["design"]
-        if "productivity" in text:
-            return SUBREDDIT_MAP["productivity"]
-        return SUBREDDIT_MAP["b2b"]
+            matched_subs.extend(SUBREDDIT_MAP["developer"])
+
+        text = f"{profile.industry} {profile.niche} {profile.icp} {' '.join(profile.problems_solved)}".lower()
+
+        if any(w in text for w in ["ai", "llm", "gpt", "intelligent", "automate", "automation"]):
+            matched_subs.extend(SUBREDDIT_MAP["ai_tools"])
+        if any(w in text for w in ["freelance", "freelancer", "contractor", "solopreneur", "solo"]):
+            matched_subs.extend(SUBREDDIT_MAP["freelance"])
+        if any(w in text for w in ["productivity", "organize", "task", "deadline", "focus", "time"]):
+            matched_subs.extend(SUBREDDIT_MAP["productivity"])
+        if any(w in text for w in ["marketing", "growth", "lead", "sales", "outreach"]):
+            matched_subs.extend(SUBREDDIT_MAP["marketing"])
+        if any(w in text for w in ["design", "ui", "ux", "figma"]):
+            matched_subs.extend(SUBREDDIT_MAP["design"])
+        if any(w in text for w in ["shop", "ecommerce", "store", "product"]):
+            matched_subs.extend(SUBREDDIT_MAP["ecommerce"])
+        if any(w in text for w in ["creator", "video", "youtube", "podcast", "writer", "blog"]):
+            matched_subs.extend(SUBREDDIT_MAP["creators"])
+        if any(w in text for w in ["finance", "invoice", "accounting", "money", "billing"]):
+            matched_subs.extend(SUBREDDIT_MAP["finance"])
+
+        matched_subs.extend(SUBREDDIT_MAP["b2b"])
+
+        # Deduplicate preserving order
+        seen = set()
+        unique = []
+        for s in matched_subs:
+            if s.lower() not in seen:
+                seen.add(s.lower())
+                unique.append(s)
+        return unique
 
     def _shorten_phrase(self, text: str, max_words: int = 5) -> str:
         cleaned = re.sub(r"[^\w\s-]", "", text)

@@ -21,7 +21,7 @@ def _x(args, timeout: float) -> list:
 
 class TwitterChannel(Channel):
     name = "twitter"
-    description = "Twitter/X 推文"
+    description = "Twitter/X tweets, threads, and user posts"
 
     # twitter-cli is not used here: even with explicit credentials it re-reads
     # browser cookies whenever verification fails.

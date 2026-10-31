@@ -246,7 +246,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         </div>
 
         <div className="coverage-grid">
-          {['reddit', 'web', 'github', 'v2ex'].map((platform) => {
+          {['reddit', 'twitter', 'web', 'github'].map((platform) => {
             const count = leads.filter((lead) => lead.platform === platform).length;
             const pct = leads.length > 0 ? (count / leads.length) * 100 : 0;
             return (

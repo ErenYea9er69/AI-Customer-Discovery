@@ -2,13 +2,13 @@
 name: agent-reach
 description: >
   Internet access, customer discovery, and lead generation for AI agents: search, read posts, evaluate customer problems, qualify leads, and extract structured business intelligence.
-  Use when the user mentions or pastes a link from Reddit, Web, GitHub, Twitter/X, LinkedIn, V2EX,
+  Use when the user mentions or pastes a link from Reddit, Web, Twitter/X, GitHub, Quora, YouTube,
   or asks to "discover customers", "find leads", "search for problems", or "read this link" and your built-in
   web search or fetch is unavailable, fails, or misses the body;
   or wants to launch customer discovery, manage platforms, configure keys, or run the lead intelligence dashboard.
   Does not: spam, bypass platform terms, or ask for passwords.
 metadata:
-  homepage: https://github.com/Panniantong/Agent-Reach
+  homepage: https://github.com/agent-reach/agent-reach
   version: "{{VERSION}}"
 ---
 
@@ -27,7 +27,7 @@ To discover potential customers experiencing problems your product solves:
 agent-reach discovery profile --url <url>
 agent-reach discovery profile --name <name> --desc <description>
 
-# Generate customer pain queries and search communities (Reddit, Web, GitHub, V2EX)
+# Generate customer pain queries and search communities (Reddit, Web, GitHub)
 agent-reach discovery plan
 agent-reach discovery search --max 15
 

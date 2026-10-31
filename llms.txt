@@ -1,6 +1,6 @@
 # Agent Reach
 
-> Makes it easier for CLI agents (Claude Code, Codex, Hermes Agent, OpenClaw, ...) to reach the internet: login-walled platforms (XiaoHongShu, Twitter/X, Reddit, LinkedIn), video content (YouTube and Bilibili subtitles, YouTube speech-to-text), Chinese platforms, and clean structured data (Xueqiu, V2EX, GitHub). One entry point, one JSON output shape.
+> Makes it easier for CLI agents (Claude Code, Codex, Hermes Agent, OpenClaw, ...) to reach the internet: login-walled platforms (XiaoHongShu, Twitter/X, Reddit, LinkedIn), video content (YouTube and Bilibili subtitles, YouTube speech-to-text), Chinese platforms, and clean structured data (Xueqiu, GitHub). One entry point, one JSON output shape.
 
 ## Install
 
@@ -21,7 +21,7 @@
 
 ## Channels
 
-- default: web, youtube, github, v2ex, bilibili (web is a fallback when the agent's own search/fetch fails)
+- default: web, youtube, github, bilibili (web is a fallback when the agent's own search/fetch fails)
 - optional: xiaohongshu, reddit, linkedin, boss, xueqiu, xiaoyuzhou (Groq key)
 - experimental: twitter, facebook, instagram
 

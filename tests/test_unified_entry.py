@@ -9,7 +9,6 @@ import pytest
 
 from agent_reach.channels.base import Action, Channel, Param
 from agent_reach.channels.github import _parse_target
-from agent_reach.channels.v2ex import _parse_topic_id
 from agent_reach.channels.web import _parse_exa_text
 from agent_reach.channels.youtube import vtt_to_text
 from agent_reach.runtime import cli as unified
@@ -278,11 +277,6 @@ def test_github_rejects_other_targets(bad):
     assert info.value.code == "BAD_INPUT"
 
 
-def test_v2ex_topic_id_forms():
-    assert _parse_topic_id("1000") == 1000
-    assert _parse_topic_id("https://www.v2ex.com/t/1000#reply3") == 1000
-    with pytest.raises(ReachError):
-        _parse_topic_id("https://example.com/t/1000")
 
 
 # ── login state under ~/.agent-reach/sessions ──

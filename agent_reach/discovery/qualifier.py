@@ -29,6 +29,23 @@ BUYING_SIGNALS = [
     (r"\b(?:hate having to|struggling with|tired of)\b", 3),
 ]
 
+COMPLAINT_SIGNALS = [
+    (r"\b(?:i keep missing|missed (?:another )?deadline|cannot keep up|behind schedule)\b", 6),
+    (r"\b(?:drowning in|overwhelmed with|cannot focus|can't focus|burnout|exhausted)\b", 5),
+    (r"\b(?:hate (?:using|having to|managing)|frustrated with|nightmare to track)\b", 5),
+    (r"\b(?:too many clients|juggling (?:multiple )?clients|client chaos|ghosted)\b", 4),
+    (r"\b(?:mess of (?:a )?(?:to-?do|tasks)|headache)\b", 3),
+]
+
+PROMO_PATTERNS = [
+    r"\b\d+\s+(?:free\s+)?(?:tools|websites|apps|tips|ways|alternatives|resources|secrets|prompts)\b",
+    r"\b(?:here are|here is)\s+\d+\b",
+    r"\b(?:bookmark this|cheat sheet|steal my|read this thread|save this post|mini-thread)\b",
+    r"\b(?:how i made|how to make \$\d+|how to become so creative)\b",
+    r"\b(?:sign up|my newsletter|link in bio|my course|subscribe to)\b",
+    r"\b(?:stop saying|don't say)\b",
+]
+
 URGENCY_SIGNALS = [
     (r"\b(?:blocking|critical|urgent|asap|every single day|wasting hours)\b", 6),
     (r"\b(?:drowning in|nightmare|disaster|cannot stand|pulling my hair out)\b", 5),
@@ -96,6 +113,17 @@ class LeadQualifier:
             if re.search(pat, lowered):
                 urgency_pts += pts
         urgency_pts = min(15, urgency_pts)
+
+        # Genuine customer complaint boost (unfiltered pain points)
+        for pat, pts in COMPLAINT_SIGNALS:
+            if re.search(pat, lowered):
+                intent_pts = min(20, intent_pts + pts)
+                urgency_pts = min(15, urgency_pts + pts)
+
+        # Penalize promotional guru articles & listicles (sellers, not buyers)
+        if any(re.search(pat, lowered) for pat in PROMO_PATTERNS):
+            intent_pts = max(2, intent_pts - 8)
+            urgency_pts = max(2, urgency_pts - 6)
 
         # Problem fit heuristic (max 30)
         matched_problems = []

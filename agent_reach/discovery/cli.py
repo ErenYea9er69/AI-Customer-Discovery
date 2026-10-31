@@ -90,7 +90,7 @@ def cmd_discovery(args: Sequence[str]) -> int:
     elif sub == "leads":
         parser = argparse.ArgumentParser(prog="agent-reach discovery leads")
         parser.add_argument("--min-score", type=int, default=50, help="Minimum score threshold (0-100)")
-        parser.add_argument("--platform", help="Filter by platform (reddit, web, github, v2ex)")
+        parser.add_argument("--platform", help="Filter by platform (reddit, web, github, twitter, quora)")
         ns = parser.parse_args(list(rest))
 
         leads = storage.list_leads(min_score=ns.min_score, platform=ns.platform)

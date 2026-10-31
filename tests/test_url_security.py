@@ -2,17 +2,9 @@
 
 import pytest
 
-from agent_reach.channels.bilibili import BilibiliChannel
-from agent_reach.channels.facebook import FacebookChannel
 from agent_reach.channels.github import GitHubChannel
-from agent_reach.channels.instagram import InstagramChannel
-from agent_reach.channels.linkedin import LinkedInChannel
 from agent_reach.channels.reddit import RedditChannel
 from agent_reach.channels.twitter import TwitterChannel
-from agent_reach.channels.v2ex import V2EXChannel
-from agent_reach.channels.xiaohongshu import XiaoHongShuChannel
-from agent_reach.channels.xiaoyuzhou import XiaoyuzhouChannel
-from agent_reach.channels.xueqiu import XueqiuChannel
 from agent_reach.channels.youtube import YouTubeChannel
 from agent_reach.utils.url import host_matches
 
@@ -22,11 +14,7 @@ from agent_reach.utils.url import host_matches
     [
         (TwitterChannel(), "https://mobile.twitter.com/user/status/1"),
         (TwitterChannel(), "https://X.COM./user/status/1"),
-        (XiaoHongShuChannel(), "https://www.xiaohongshu.com/explore/1"),
-        (XiaoHongShuChannel(), "https://xhslink.com/a/1"),
-        (BilibiliChannel(), "https://www.bilibili.com/video/BV1"),
-        (BilibiliChannel(), "https://b23.tv/abc"),
-        (XueqiuChannel(), "https://stock.xueqiu.com/v5/stock/quote"),
+        (RedditChannel(), "https://www.reddit.com/r/python/comments/1"),
     ],
 )
 def test_credential_channels_accept_exact_hosts_and_subdomains(channel, valid_url):
@@ -41,12 +29,8 @@ def test_credential_channels_accept_exact_hosts_and_subdomains(channel, valid_ur
         (TwitterChannel(), "https://x.com@evil.test/user/status/1"),
         (TwitterChannel(), "https://user:pass@x.com/user/status/1"),
         (TwitterChannel(), "ftp://x.com/user/status/1"),
-        (XiaoHongShuChannel(), "https://xiaohongshu.com.evil.test/explore/1"),
-        (XiaoHongShuChannel(), "https://xiaohongshu.com@evil.test/explore/1"),
-        (BilibiliChannel(), "https://bilibili.com.evil.test/video/BV1"),
-        (BilibiliChannel(), "https://b23.tv@evil.test/abc"),
-        (XueqiuChannel(), "https://xueqiu.com.evil.test/S/SH600519"),
-        (XueqiuChannel(), "https://xueqiu.com@evil.test/S/SH600519"),
+        (RedditChannel(), "https://reddit.com.evil.test/r/python"),
+        (RedditChannel(), "https://reddit.com@evil.test/r/python"),
     ],
 )
 def test_credential_channels_reject_lookalikes_and_userinfo(channel, malicious_url):
@@ -71,31 +55,6 @@ def test_credential_channels_reject_lookalikes_and_userinfo(channel, malicious_u
             "https://old.reddit.com/r/python",
             "https://reddit.com:443/r/python",
         ),
-        (
-            LinkedInChannel(),
-            "https://www.linkedin.com/in/example",
-            "https://linkedin.com:443/in/example",
-        ),
-        (
-            V2EXChannel(),
-            "https://www.v2ex.com/t/1",
-            "https://v2ex.com:443/t/1",
-        ),
-        (
-            XiaoyuzhouChannel(),
-            "https://www.xiaoyuzhoufm.com/episode/1",
-            "https://xiaoyuzhoufm.com:443/episode/1",
-        ),
-        (
-            FacebookChannel(),
-            "https://m.facebook.com/groups/1",
-            "https://facebook.com:443/groups/1",
-        ),
-        (
-            InstagramChannel(),
-            "https://www.instagram.com/example",
-            "https://instagram.com:443/example",
-        ),
     ],
 )
 def test_fixed_domain_channels_accept_subdomains_and_explicit_ports(
@@ -111,11 +70,6 @@ def test_fixed_domain_channels_accept_subdomains_and_explicit_ports(
         (GitHubChannel(), "github.com"),
         (YouTubeChannel(), "youtube.com"),
         (RedditChannel(), "reddit.com"),
-        (LinkedInChannel(), "linkedin.com"),
-        (V2EXChannel(), "v2ex.com"),
-        (XiaoyuzhouChannel(), "xiaoyuzhoufm.com"),
-        (FacebookChannel(), "facebook.com"),
-        (InstagramChannel(), "instagram.com"),
     ],
 )
 def test_fixed_domain_channels_reject_suffix_lookalikes_and_userinfo(

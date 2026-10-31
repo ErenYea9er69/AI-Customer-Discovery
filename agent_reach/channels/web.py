@@ -152,7 +152,7 @@ def _parse_jina(url: str, body: str) -> dict:
 
 class WebChannel(Channel):
     name = "web"
-    description = "网页搜索与阅读（Agent 自带工具不可用时的保底）"
+    description = "Web search and article reading fallback"
 
     level = "default"
     actions = (

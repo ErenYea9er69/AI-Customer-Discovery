@@ -57,7 +57,7 @@ class SearchQuery(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     query: str
     intent_type: str = "frustration"  # frustration, alternative, recommendation, cost, tool_request
-    platform: str = "reddit"  # reddit, web, github, v2ex
+    platform: str = "reddit"  # reddit, web, github, twitter, quora
     target_community: Optional[str] = None  # e.g. "r/startups" or "owner/repo"
     rationale: str = ""
 

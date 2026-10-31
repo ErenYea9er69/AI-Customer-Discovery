@@ -2,14 +2,14 @@
 
 > Transform raw community conversations into high-intent customer leads and personalized, value-first replies.
 
-Agent Reach is an AI customer intelligence and lead discovery agent. It analyzes a business website or product description, identifies the exact problems it solves and its Ideal Customer Profile (ICP), searches relevant online communities (Reddit, Web, GitHub Issues, V2EX) for people actively experiencing those problems, evaluates lead intent with an explainable 100-point score, and generates personalized, community-compliant responses.
+Agent Reach is an AI customer intelligence and lead discovery agent. It analyzes a business website or product description, identifies the exact problems it solves and its Ideal Customer Profile (ICP), searches relevant online communities (Reddit, Web, GitHub Issues) for people actively experiencing those problems, evaluates lead intent with an explainable 100-point score, and generates personalized, community-compliant responses.
 
 ---
 
 ## ⚡ Key Capabilities
 
 - **🧠 Business Understanding Engine:** Crawls company websites (`/pricing`, `/features`, `/about`, `/faq`) or analyzes manual product descriptions. Extracts verified facts (with direct source links) and AI inferences with confidence ratings.
-- **🔍 Intelligent Customer Discovery:** Generates targeted queries based on customer pain expressions (`"struggling with..."`, `"looking for an alternative to..."`, `"hate having to..."`, `"is there a tool that..."`). Prioritizes Reddit as the primary source, supplemented by Web, GitHub, and V2EX.
+- **🔍 Intelligent Customer Discovery:** Generates targeted queries based on customer pain expressions (`"struggling with..."`, `"looking for an alternative to..."`, `"hate having to..."`, `"is there a tool that..."`). Prioritizes Reddit as the primary source, supplemented by Web, GitHub, and .
 - **📊 Explainable Lead Qualification (100 Points):**
   - **ICP Match:** 25 points
   - **Problem & Product Fit:** 30 points
@@ -95,7 +95,7 @@ agent_reach/
 │   ├── storage.py         # SQLite persistence & CSV/JSON export
 │   ├── business_engine.py # Website scraping & fact/inference extraction
 │   ├── search_planner.py  # Problem & competitor alternative query generation
-│   ├── harvester.py       # Multi-platform community search (Reddit, Web, GitHub, V2EX)
+│   ├── harvester.py       # Multi-platform community search (Reddit, Web, GitHub)
 │   ├── qualifier.py       # 100-point explainable lead qualification
 │   ├── reply_generator.py # Value-first and product-aware response generation
 │   ├── publisher.py       # Safe publishing layer, rate limits & emergency stop

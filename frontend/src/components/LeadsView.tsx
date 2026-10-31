@@ -129,9 +129,9 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
         >
           <option value="all">All Sources</option>
           <option value="reddit">Reddit</option>
+          <option value="twitter">Twitter / X</option>
           <option value="web">Public Web</option>
           <option value="github">GitHub</option>
-          <option value="v2ex">V2EX</option>
         </select>
 
         <select

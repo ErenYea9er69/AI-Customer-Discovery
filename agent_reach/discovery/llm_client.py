@@ -22,8 +22,35 @@ class LLMClient:
         model: Optional[str] = None,
         api_key: Optional[str] = None,
     ):
-        self.provider = (provider or os.getenv("LLM_PROVIDER", "mock")).lower()
-        self.api_key = api_key or os.getenv("LLM_API_KEY")
+        env_provider = os.getenv("LLM_PROVIDER")
+        if not env_provider and not provider:
+            if os.getenv("GROQ_API_KEY"):
+                env_provider = "groq"
+            elif os.getenv("OPENAI_API_KEY"):
+                env_provider = "openai"
+            elif os.getenv("GEMINI_API_KEY"):
+                env_provider = "gemini"
+            elif os.getenv("ANTHROPIC_API_KEY"):
+                env_provider = "anthropic"
+            else:
+                env_provider = "mock"
+
+        self.provider = (provider or env_provider or "mock").lower()
+
+        if not api_key:
+            if self.provider == "groq":
+                self.api_key = os.getenv("GROQ_API_KEY") or os.getenv("LLM_API_KEY")
+            elif self.provider == "openai":
+                self.api_key = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
+            elif self.provider == "gemini":
+                self.api_key = os.getenv("GEMINI_API_KEY") or os.getenv("LLM_API_KEY")
+            elif self.provider == "anthropic":
+                self.api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("LLM_API_KEY")
+            else:
+                self.api_key = os.getenv("LLM_API_KEY")
+        else:
+            self.api_key = api_key
+
         self.model = model or os.getenv("LLM_MODEL")
 
         if self.provider == "openai" and not self.model:
@@ -33,8 +60,7 @@ class LLMClient:
         elif self.provider == "groq" and not self.model:
             self.model = "llama-3.3-70b-versatile"
         elif self.provider == "anthropic" and not self.model:
-            self.model = "claude-3-5-sonnet-20241022"
-
+            self.model = "claude-3-5-sonnet-20241022" 
     def complete(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """Get completion from selected provider or mock engine."""
         if self.provider == "mock":
@@ -176,6 +202,64 @@ class LLMClient:
             # Check if prompt specifies a business name
             name_match = re.search(r'Business Name:\s*([^\n]+)', prompt)
             business_name = name_match.group(1).strip() if name_match and name_match.group(1).strip() != "Unspecified" else "SuperTask"
+
+            if "freelance" in lower or "taskly" in lower or "productivity" in lower and "engineer" not in lower:
+                return json.dumps({
+                    "name": business_name if business_name != "SuperTask" else "Taskly",
+                    "industry": "Freelance Productivity & Workflow Automation",
+                    "niche": "Task, Deadline & Automation Dashboard for Freelancers",
+                    "main_product_or_service": "AI productivity dashboard that organizes tasks, manages deadlines, and automates repetitive freelance work",
+                    "features": [
+                        "Multi-client task organization & prioritization",
+                        "Smart deadline management & buffer time alerts",
+                        "Automated repetitive workflow routines",
+                        "Unified simple freelance dashboard",
+                    ],
+                    "problems_solved": [
+                        "Freelancers struggle to focus and juggle multiple conflicting client deadlines",
+                        "Manual and repetitive administrative tasks eat up billable hours",
+                        "Scattered tasks and lost client communications across too many apps",
+                    ],
+                    "customer_outcomes": [
+                        "Hit 100% of client deadlines without burnout",
+                        "Reclaim 10+ hours weekly on automated admin tasks",
+                        "Clear single-dashboard focus every morning",
+                    ],
+                    "icp": "Freelancers, Solo Consultants, and Independent Contractors juggling multiple clients",
+                    "target_industries": ["Freelance / Creative Services", "Independent Consulting", "Remote Knowledge Work"],
+                    "target_roles": ["Freelancer", "Independent Contractor", "Solo Consultant", "Creative Professional"],
+                    "customer_demographics": ["Solo professionals managing 2-10 active client accounts"],
+                    "customer_frustrations": [
+                        "Missing deadlines due to fragmented client requests",
+                        "Losing focus and feeling paralyzed by chaotic task lists",
+                        "Spending mornings organizing tools instead of doing billable work",
+                    ],
+                    "competitors_and_alternatives": ["Notion", "ClickUp", "Todoist", "Trello", "Asana"],
+                    "unique_selling_points": [
+                        "Built specifically for solo freelancers managing multiple deadlines, not bloated corporate teams",
+                        "Automates repetitive client admin out of the box",
+                    ],
+                    "pricing_info": "$12/month with a 14-day free trial",
+                    "geographic_market": "Global",
+                    "trigger_events": [
+                        "Missed a deadline and risked losing a paying client",
+                        "Taking on multiple clients and feeling overwhelmed by admin chaos",
+                    ],
+                    "facts": [
+                        {
+                            "claim": "Taskly organizes tasks, manages deadlines, and automates repetitive work from one simple dashboard",
+                            "source_url": "user_input",
+                            "category": "feature",
+                        },
+                    ],
+                    "inferences": [
+                        {
+                            "insight": "Freelancers managing 3+ simultaneous client deadlines experience the highest pain and conversion urgency",
+                            "confidence": 0.94,
+                            "basis": "Context switching and deadline anxiety scale sharply with client count",
+                        },
+                    ],
+                })
             return json.dumps({
                 "name": business_name,
                 "industry": "Developer Productivity Software",

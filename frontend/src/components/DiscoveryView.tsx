@@ -146,9 +146,9 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
             <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
               {[
                 { id: 'reddit', label: 'Reddit' },
-                { id: 'web', label: 'Public Web' },
+                { id: 'twitter', label: 'Twitter / X' },
+                { id: 'web', label: 'Web & Quora' },
                 { id: 'github', label: 'GitHub Issues' },
-                { id: 'v2ex', label: 'V2EX' },
               ].map((p) => {
                 const isSelected = selectedPlatforms.includes(p.id);
                 return (
