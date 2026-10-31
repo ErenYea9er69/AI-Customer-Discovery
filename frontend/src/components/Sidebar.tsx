@@ -96,7 +96,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Footer Info */}
       <div className="sidebar-footer">
-        <span>Engine v2.0.0</span>
+        <span>Engine v2.1.0</span>
         <span className="status-indicator">
           <span className="status-dot status-dot-green" />
           <span>Ready</span>

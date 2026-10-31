@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 
+from agent_reach.discovery.thread_check import canonical_url
 from agent_reach.discovery.models import (
     BusinessProfile,
     Campaign,
@@ -40,16 +41,22 @@ class DiscoveryStorage:
 
     @contextmanager
     def _connection(self) -> Generator[sqlite3.Connection, None, None]:
-        conn = sqlite3.connect(str(self.db_path))
+        conn = sqlite3.connect(str(self.db_path), timeout=30)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout = 30000")
         try:
             yield conn
             conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             conn.close()
 
     def _init_db(self) -> None:
         with self._connection() as conn:
+            # WAL lets the campaign thread write while the API reads.
+            conn.execute("PRAGMA journal_mode = WAL")
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS business_profiles (
@@ -138,6 +145,12 @@ class DiscoveryStorage:
                 """
             )
 
+        # The settings table holds API keys. Keep the file private to this user.
+        try:
+            os.chmod(self.db_path, 0o600)
+        except OSError:
+            pass
+
     # ── Business Profiles ──
 
     def save_business_profile(self, profile: BusinessProfile) -> None:
@@ -213,6 +226,15 @@ class DiscoveryStorage:
                 return Campaign.model_validate_json(row["data"])
         return None
 
+    def mark_stale_campaigns_failed(self) -> int:
+        """A restart kills background threads. Close campaigns left in 'running'."""
+        stale = [c for c in self.list_campaigns(limit=200) if c.status == "running"]
+        for campaign in stale:
+            campaign.status = "failed"
+            campaign.current_step = "Interrupted by a server restart. Launch the campaign again."
+            self.save_campaign(campaign)
+        return len(stale)
+
     def list_campaigns(self, limit: int = 50) -> List[Campaign]:
         with self._connection() as conn:
             rows = conn.execute("SELECT data FROM campaigns ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
@@ -222,6 +244,7 @@ class DiscoveryStorage:
 
     def save_discovered_item(self, item: DiscoveredItem) -> bool:
         """Saves item. Returns True if inserted, False if duplicate."""
+        item.url = canonical_url(item.url)
         try:
             with self._connection() as conn:
                 conn.execute(
@@ -247,7 +270,9 @@ class DiscoveryStorage:
 
     def is_url_discovered(self, url: str) -> bool:
         with self._connection() as conn:
-            row = conn.execute("SELECT 1 FROM discovered_items WHERE url = ?", (url,)).fetchone()
+            row = conn.execute(
+                "SELECT 1 FROM discovered_items WHERE url = ? OR url = ?", (canonical_url(url), url)
+            ).fetchone()
             return row is not None
 
     # ── Leads ──
@@ -321,9 +346,12 @@ class DiscoveryStorage:
             conditions.append("buying_intent = ?")
             params.append(buying_intent)
         if query:
-            conditions.append("(title LIKE ? OR customer_problem LIKE ?)")
-            params.extend([f"%{query}%", f"%{query}%"])
+            escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            conditions.append("(title LIKE ? ESCAPE '\\' OR customer_problem LIKE ? ESCAPE '\\')")
+            params.extend([f"%{escaped}%", f"%{escaped}%"])
 
+        limit = max(1, min(int(limit), 500))
+        offset = max(0, int(offset))
         params.extend([limit, offset])
         sql = f"""
             SELECT data FROM leads
@@ -440,6 +468,19 @@ class DiscoveryStorage:
                 ),
             )
 
+    def last_published_at(self, platform: Optional[str] = None) -> Optional[float]:
+        with self._connection() as conn:
+            if platform:
+                row = conn.execute(
+                    "SELECT MAX(created_at) FROM posting_logs WHERE status = 'published' AND platform = ?",
+                    (platform,),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT MAX(created_at) FROM posting_logs WHERE status = 'published'"
+                ).fetchone()
+            return row[0] if row and row[0] else None
+
     def count_posts_today(self, platform: Optional[str] = None) -> int:
         start_of_day = time.time() - (time.time() % 86400)
         with self._connection() as conn:
@@ -491,6 +532,13 @@ class DiscoveryStorage:
         leads = self.list_leads(min_score=min_score, limit=1000)
         output = io.StringIO()
         writer = csv.writer(output)
+
+        def safe(value: Any) -> Any:
+            # Titles and excerpts come from the internet. A leading = + - @ makes
+            # Excel run the cell as a formula, so prefix a quote.
+            text = "" if value is None else str(value)
+            return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else value
+
         writer.writerow([
             "Lead ID",
             "Title",
@@ -508,7 +556,7 @@ class DiscoveryStorage:
             "Evidence",
         ])
         for lead in leads:
-            writer.writerow([
+            writer.writerow([safe(v) for v in (
                 lead.id,
                 lead.title,
                 lead.score,
@@ -523,5 +571,5 @@ class DiscoveryStorage:
                 lead.purchase_intent,
                 lead.urgency,
                 lead.evidence,
-            ])
+            )])
         return output.getvalue()

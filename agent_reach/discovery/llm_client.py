@@ -1,394 +1,221 @@
 # -*- coding: utf-8 -*-
-"""Configurable LLM client supporting OpenAI, Gemini, Groq, Anthropic, and local heuristic mock."""
+"""Configurable LLM client for OpenAI, Gemini, Groq and Anthropic.
+
+The mock provider runs only when LLM_PROVIDER=mock is set on purpose. With no
+provider and no key the client raises LLMNotConfiguredError. It never invents
+business data.
+"""
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, Optional
+
+import requests
+
+log = logging.getLogger("agent_reach.discovery")
+
+# Override any default with LLM_MODEL or the dashboard setting. These names
+# were not checked against each vendor's live model list.
+DEFAULT_MODELS = {
+    "openai": "gpt-4o",
+    "gemini": "gemini-2.5-flash",
+    "groq": "llama-3.3-70b-versatile",
+    "anthropic": "claude-sonnet-5-5",
+}
+_KEY_ENV = {
+    "groq": "GROQ_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+}
+_TIMEOUT_SECONDS = 60
+_RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
 class LLMProviderError(RuntimeError):
-    """Raised when a configured provider fails; mock is opt-in only."""
+    """Raised when a configured provider fails."""
+
+
+class LLMNotConfiguredError(LLMProviderError):
+    """Raised when no provider or API key is available."""
 
 
 class LLMClient:
-    """Configurable LLM interface with an explicit, deterministic mock provider."""
+    """Small provider switch with explicit failure."""
 
     def __init__(
         self,
-        provider: str = "mock",
+        provider: Optional[str] = None,
         model: Optional[str] = None,
         api_key: Optional[str] = None,
     ):
-        env_provider = os.getenv("LLM_PROVIDER")
-        if not env_provider and not provider:
-            if os.getenv("GROQ_API_KEY"):
-                env_provider = "groq"
-            elif os.getenv("OPENAI_API_KEY"):
-                env_provider = "openai"
-            elif os.getenv("GEMINI_API_KEY"):
-                env_provider = "gemini"
-            elif os.getenv("ANTHROPIC_API_KEY"):
-                env_provider = "anthropic"
-            else:
-                env_provider = "mock"
+        chosen = (provider or os.getenv("LLM_PROVIDER") or "").strip().lower()
+        if not chosen:
+            # Pick the first provider that has a key. Leave empty when none does.
+            for name in ("groq", "openai", "gemini", "anthropic"):
+                if os.getenv(_KEY_ENV[name]):
+                    chosen = name
+                    break
+        self.provider = chosen
 
-        self.provider = (provider or env_provider or "mock").lower()
+        self.api_key = api_key or None
+        if not self.api_key and self.provider in _KEY_ENV:
+            self.api_key = os.getenv(_KEY_ENV[self.provider]) or os.getenv("LLM_API_KEY")
 
-        if not api_key:
-            if self.provider == "groq":
-                self.api_key = os.getenv("GROQ_API_KEY") or os.getenv("LLM_API_KEY")
-            elif self.provider == "openai":
-                self.api_key = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
-            elif self.provider == "gemini":
-                self.api_key = os.getenv("GEMINI_API_KEY") or os.getenv("LLM_API_KEY")
-            elif self.provider == "anthropic":
-                self.api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("LLM_API_KEY")
-            else:
-                self.api_key = os.getenv("LLM_API_KEY")
-        else:
-            self.api_key = api_key
+        self.model = model or os.getenv("LLM_MODEL") or DEFAULT_MODELS.get(self.provider)
 
-        self.model = model or os.getenv("LLM_MODEL")
-
-        if self.provider == "openai" and not self.model:
-            self.model = "gpt-4o"
-        elif self.provider == "gemini" and not self.model:
-            self.model = "gemini-1.5-flash"
-        elif self.provider == "groq" and not self.model:
-            self.model = "llama-3.3-70b-versatile"
-        elif self.provider == "anthropic" and not self.model:
-            self.model = "claude-3-5-sonnet-20241022" 
-    def complete(self, prompt: str, system_prompt: Optional[str] = None) -> str:
-        """Get completion from selected provider or mock engine."""
+    @property
+    def is_configured(self) -> bool:
         if self.provider == "mock":
-            return self._mock_completion(prompt, system_prompt)
+            return True
+        return bool(self.provider in DEFAULT_MODELS and self.api_key)
+
+    @property
+    def is_mock(self) -> bool:
+        return self.provider == "mock"
+
+    # ── Public API ──
+
+    def complete(self, prompt: str, system_prompt: Optional[str] = None, json_mode: bool = False) -> str:
+        if self.provider == "mock":
+            from agent_reach.discovery.llm_mock import mock_completion
+
+            log.warning("LLM provider is 'mock'. Output is canned test data, not real analysis.")
+            return mock_completion(prompt, system_prompt)
+        if not self.provider:
+            raise LLMNotConfiguredError(
+                "No LLM is configured. Set LLM_PROVIDER (openai, gemini, groq, anthropic) "
+                "and an API key, or choose a provider in Settings."
+            )
+        if self.provider not in DEFAULT_MODELS:
+            raise LLMProviderError(f"Unsupported LLM provider: {self.provider}")
         if not self.api_key:
-            raise LLMProviderError(f"Provider '{self.provider}' is configured but no API key is available.")
+            raise LLMNotConfiguredError(f"Provider '{self.provider}' has no API key.")
 
         if self.provider == "openai":
-            return self._call_openai(prompt, system_prompt)
-        elif self.provider == "gemini":
-            return self._call_gemini(prompt, system_prompt)
-        elif self.provider == "groq":
-            return self._call_groq(prompt, system_prompt)
-        elif self.provider == "anthropic":
-            return self._call_anthropic(prompt, system_prompt)
-        else:
-            raise LLMProviderError(f"Unsupported LLM provider: {self.provider}")
+            return self._call_openai_compatible(prompt, system_prompt, json_mode, base_url=None)
+        if self.provider == "groq":
+            return self._call_openai_compatible(prompt, system_prompt, json_mode, base_url="groq")
+        if self.provider == "gemini":
+            return self._call_gemini(prompt, system_prompt, json_mode)
+        return self._call_anthropic(prompt, system_prompt)
 
     def complete_json(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
-        """Request structured JSON completion and parse safely."""
-        json_system = (
-            (system_prompt or "")
-            + "\nRespond ONLY with a valid JSON object. Do not include markdown commentary."
-        ).strip()
-        raw = self.complete(prompt, json_system)
-        return self._extract_json(raw)
+        """Request a JSON object. Retries once when the reply is not valid JSON."""
+        json_system = ((system_prompt or "") + "\nRespond ONLY with a valid JSON object. No commentary.").strip()
+        raw = self.complete(prompt, json_system, json_mode=True)
+        try:
+            return self._extract_json(raw)
+        except LLMProviderError:
+            retry = self.complete(
+                prompt + "\n\nYour last reply was not valid JSON. Reply with one JSON object only.",
+                json_system,
+                json_mode=True,
+            )
+            return self._extract_json(retry)
 
-    def _extract_json(self, raw: str) -> Dict[str, Any]:
-        """Extract and parse JSON from potential markdown wrapping or text."""
-        cleaned = raw.strip()
-        # Strip ```json ... ```
+    @staticmethod
+    def _extract_json(raw: str) -> Dict[str, Any]:
+        cleaned = (raw or "").strip()
         if "```" in cleaned:
             match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned)
             if match:
                 cleaned = match.group(1).strip()
-        try:
-            return json.loads(cleaned)
-        except json.JSONDecodeError:
-            # Try to find { ... } block
-            match = re.search(r"(\{[\s\S]*\})", cleaned)
-            if match:
-                try:
-                    return json.loads(match.group(1))
-                except json.JSONDecodeError:
-                    pass
-            raise LLMProviderError("Configured LLM returned invalid JSON.")
+        candidates = [cleaned]
+        block = re.search(r"(\{[\s\S]*\})", cleaned)
+        if block:
+            candidates.append(block.group(1))
+        for text in candidates:
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+        raise LLMProviderError("The LLM returned invalid JSON.")
 
     # ── Providers ──
 
-    def _call_openai(self, prompt: str, system_prompt: Optional[str]) -> str:
+    def _call_openai_compatible(
+        self, prompt: str, system_prompt: Optional[str], json_mode: bool, base_url: Optional[str]
+    ) -> str:
         try:
-            from openai import OpenAI
+            if base_url == "groq":
+                from groq import Groq
 
-            client = OpenAI(api_key=self.api_key)
+                client = Groq(api_key=self.api_key, timeout=_TIMEOUT_SECONDS, max_retries=2)
+            else:
+                from openai import OpenAI
+
+                client = OpenAI(api_key=self.api_key, timeout=_TIMEOUT_SECONDS, max_retries=2)
             messages = []
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
             messages.append({"role": "user", "content": prompt})
-            resp = client.chat.completions.create(
-                model=self.model or "gpt-4o",
-                messages=messages,
-                response_format={"type": "json_object"} if "json" in prompt.lower() else None,
-            )
+            kwargs: Dict[str, Any] = {"model": self.model, "messages": messages}
+            if json_mode:
+                kwargs["response_format"] = {"type": "json_object"}
+            resp = client.chat.completions.create(**kwargs)
             return resp.choices[0].message.content or ""
-        except Exception as e:
-            raise LLMProviderError(f"OpenAI request failed: {e}") from e
+        except ImportError as exc:
+            raise LLMProviderError(f"Install the '{self.provider}' package: {exc}") from exc
+        except Exception as exc:  # SDK errors vary by vendor
+            raise LLMProviderError(f"{self.provider} request failed: {type(exc).__name__}: {str(exc)[:300]}") from exc
 
-    def _call_gemini(self, prompt: str, system_prompt: Optional[str]) -> str:
+    def _post_json(self, url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> Dict[str, Any]:
+        last = ""
+        for attempt in range(3):
+            try:
+                resp = requests.post(url, json=payload, headers=headers, timeout=_TIMEOUT_SECONDS)
+            except requests.RequestException as exc:
+                last = type(exc).__name__
+            else:
+                if resp.status_code == 200:
+                    return resp.json()
+                last = f"http {resp.status_code}: {resp.text[:300]}"
+                if resp.status_code not in _RETRY_STATUS:
+                    break
+            time.sleep(1.5 * (attempt + 1))
+        raise LLMProviderError(f"{self.provider} request failed ({last})")
+
+    def _call_gemini(self, prompt: str, system_prompt: Optional[str], json_mode: bool) -> str:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+        payload: Dict[str, Any] = {"contents": [{"parts": [{"text": prompt}]}]}
+        if system_prompt:
+            payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
+        if json_mode:
+            payload["generationConfig"] = {"responseMimeType": "application/json"}
+        data = self._post_json(
+            url, {"Content-Type": "application/json", "x-goog-api-key": str(self.api_key)}, payload
+        )
         try:
-            import requests
-
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model or 'gemini-1.5-flash'}:generateContent"
-            text = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
-            payload = {"contents": [{"parts": [{"text": text}]}]}
-            headers = {
-                "Content-Type": "application/json",
-                "x-goog-api-key": str(self.api_key),
-            }
-            resp = requests.post(url, json=payload, headers=headers, timeout=30)
-            if resp.status_code != 200:
-                raise LLMProviderError(f"Gemini API returned status {resp.status_code}: {resp.text}")
-            result = resp.json()
-            return result["candidates"][0]["content"]["parts"][0]["text"]
-        except LLMProviderError:
-            raise
-        except Exception as e:
-            raise LLMProviderError(f"Gemini request failed: {e}") from e
-
-    def _call_groq(self, prompt: str, system_prompt: Optional[str]) -> str:
-        try:
-            from groq import Groq
-
-            client = Groq(api_key=self.api_key)
-            messages = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": prompt})
-            resp = client.chat.completions.create(
-                model=self.model or "llama-3.3-70b-versatile",
-                messages=messages,
-            )
-            return resp.choices[0].message.content or ""
-        except Exception as e:
-            raise LLMProviderError(f"Groq request failed: {e}") from e
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise LLMProviderError("Gemini returned no text (blocked or empty).") from exc
 
     def _call_anthropic(self, prompt: str, system_prompt: Optional[str]) -> str:
-        try:
-            import requests
-
-            url = "https://api.anthropic.com/v1/messages"
-            headers = {
-                "x-api-key": str(self.api_key or ""),
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": 4096,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if system_prompt:
+            payload["system"] = system_prompt
+        data = self._post_json(
+            "https://api.anthropic.com/v1/messages",
+            {
+                "x-api-key": str(self.api_key),
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
-            }
-            payload: Dict[str, Any] = {
-                "model": self.model or "claude-3-5-sonnet-20241022",
-                "max_tokens": 4096,
-                "messages": [{"role": "user", "content": prompt}],
-            }
-            if system_prompt:
-                payload["system"] = system_prompt
-            resp = requests.post(url, json=payload, headers=headers, timeout=30)
-            if resp.status_code != 200:
-                raise LLMProviderError(f"Anthropic API returned status {resp.status_code}: {resp.text}")
-            res = resp.json()
-            return res["content"][0]["text"]
-        except LLMProviderError:
-            raise
-        except Exception as e:
-            raise LLMProviderError(f"Anthropic request failed: {e}") from e
-
-    # ── Heuristic Mock Engine (for testing & offline execution) ──
-
-    def _mock_completion(self, prompt: str, system_prompt: Optional[str]) -> str:
-        lower = prompt.lower()
-        if "business profile" in lower:
-            # Deterministic business profile response
-            # Check if prompt specifies a business name
-            name_match = re.search(r'Business Name:\s*([^\n]+)', prompt)
-            business_name = name_match.group(1).strip() if name_match and name_match.group(1).strip() != "Unspecified" else "SuperTask"
-
-            if "freelance" in lower or "taskly" in lower or "productivity" in lower and "engineer" not in lower:
-                return json.dumps({
-                    "name": business_name if business_name != "SuperTask" else "Taskly",
-                    "industry": "Freelance Productivity & Workflow Automation",
-                    "niche": "Task, Deadline & Automation Dashboard for Freelancers",
-                    "main_product_or_service": "AI productivity dashboard that organizes tasks, manages deadlines, and automates repetitive freelance work",
-                    "features": [
-                        "Multi-client task organization & prioritization",
-                        "Smart deadline management & buffer time alerts",
-                        "Automated repetitive workflow routines",
-                        "Unified simple freelance dashboard",
-                    ],
-                    "problems_solved": [
-                        "Freelancers struggle to focus and juggle multiple conflicting client deadlines",
-                        "Manual and repetitive administrative tasks eat up billable hours",
-                        "Scattered tasks and lost client communications across too many apps",
-                    ],
-                    "customer_outcomes": [
-                        "Hit 100% of client deadlines without burnout",
-                        "Reclaim 10+ hours weekly on automated admin tasks",
-                        "Clear single-dashboard focus every morning",
-                    ],
-                    "icp": "Freelancers, Solo Consultants, and Independent Contractors juggling multiple clients",
-                    "target_industries": ["Freelance / Creative Services", "Independent Consulting", "Remote Knowledge Work"],
-                    "target_roles": ["Freelancer", "Independent Contractor", "Solo Consultant", "Creative Professional"],
-                    "customer_demographics": ["Solo professionals managing 2-10 active client accounts"],
-                    "customer_frustrations": [
-                        "Missing deadlines due to fragmented client requests",
-                        "Losing focus and feeling paralyzed by chaotic task lists",
-                        "Spending mornings organizing tools instead of doing billable work",
-                    ],
-                    "competitors_and_alternatives": ["Notion", "ClickUp", "Todoist", "Trello", "Asana"],
-                    "unique_selling_points": [
-                        "Built specifically for solo freelancers managing multiple deadlines, not bloated corporate teams",
-                        "Automates repetitive client admin out of the box",
-                    ],
-                    "pricing_info": "$12/month with a 14-day free trial",
-                    "geographic_market": "Global",
-                    "trigger_events": [
-                        "Missed a deadline and risked losing a paying client",
-                        "Taking on multiple clients and feeling overwhelmed by admin chaos",
-                    ],
-                    "facts": [
-                        {
-                            "claim": "Taskly organizes tasks, manages deadlines, and automates repetitive work from one simple dashboard",
-                            "source_url": "user_input",
-                            "category": "feature",
-                        },
-                    ],
-                    "inferences": [
-                        {
-                            "insight": "Freelancers managing 3+ simultaneous client deadlines experience the highest pain and conversion urgency",
-                            "confidence": 0.94,
-                            "basis": "Context switching and deadline anxiety scale sharply with client count",
-                        },
-                    ],
-                })
-            return json.dumps({
-                "name": business_name,
-                "industry": "Developer Productivity Software",
-                "niche": "Automated Backlog Triage for Engineering Teams",
-                "main_product_or_service": "AI-powered GitHub issue and sprint backlog manager",
-                "features": [
-                    "Automatic bug duplicate detection",
-                    "Sprint backlog prioritization",
-                    "Slack & Discord issue notifications",
-                ],
-                "problems_solved": [
-                    "Engineers spend 5+ hours weekly triaging stale tickets",
-                    "Duplicate issues fragment customer reports",
-                    "Unclear backlog priority causes sprint delays",
-                ],
-                "customer_outcomes": [
-                    "Save 20 hours per sprint",
-                    "Zero duplicate bug tickets",
-                    "Faster PR merges",
-                ],
-                "icp": "VP of Engineering, Lead Developer, or Technical Product Manager at high-growth tech companies",
-                "target_industries": ["Software / SaaS", "FinTech", "DevOps"],
-                "target_roles": ["Engineering Manager", "Tech Lead", "CTO", "Scrum Master"],
-                "customer_demographics": ["Remote or hybrid engineering teams of 10-200 developers"],
-                "customer_frustrations": [
-                    "Tired of manually labeling and assigning GitHub issues",
-                    "Jira backlog grooming meetings take forever",
-                    "Engineers miss critical customer-reported regressions",
-                ],
-                "competitors_and_alternatives": ["Linear", "Jira Software", "GitHub Projects", "Shortcut"],
-                "unique_selling_points": [
-                    "True AI-native triage that runs in GitHub Actions with zero setup",
-                    "Self-hosted privacy-first architecture",
-                ],
-                "pricing_info": "$19/seat/month with a 14-day free trial",
-                "geographic_market": "Global",
-                "trigger_events": [
-                    "Sprint planning is derailed by stale backlog tickets",
-                    "Major customer bug is filed as a duplicate and ignored",
-                ],
-                "facts": [
-                    {
-                        "claim": "SuperTask integrates natively with GitHub Actions and Jira",
-                        "source_url": "https://supertask.example.com/features",
-                        "category": "feature",
-                    },
-                    {
-                        "claim": "Pricing starts at $19 per user per month",
-                        "source_url": "https://supertask.example.com/pricing",
-                        "category": "pricing",
-                    },
-                ],
-                "inferences": [
-                    {
-                        "insight": "Target teams likely have between 10 and 200 software engineers",
-                        "confidence": 0.88,
-                        "basis": "Feature set and per-seat pricing cater to mid-sized engineering teams",
-                    },
-                    {
-                        "insight": "Highest conversion occurs when engineering teams switch from Jira to lighter tools",
-                        "confidence": 0.75,
-                        "basis": "Pain points focus heavily on backlog grooming friction",
-                    },
-                ],
-            })
-
-        if "generate search queries" in lower or "search planning" in lower:
-            return json.dumps({
-                "queries": [
-                    {
-                        "query": "hate backlog grooming Jira",
-                        "intent_type": "frustration",
-                        "platform": "reddit",
-                        "target_community": "r/programming",
-                        "rationale": "Direct frustration with existing alternative backlog management",
-                    },
-                    {
-                        "query": "looking for alternative to Jira issue triage",
-                        "intent_type": "alternative",
-                        "platform": "reddit",
-                        "target_community": "r/softwaredevelopment",
-                        "rationale": "High buying intent seeking modern replacement",
-                    },
-                    {
-                        "query": "how do you handle duplicate GitHub issues",
-                        "intent_type": "tool_request",
-                        "platform": "reddit",
-                        "target_community": "r/devops",
-                        "rationale": "Specific problem that the product directly solves",
-                    },
-                    {
-                        "query": "automate GitHub issue triage duplicate detection",
-                        "intent_type": "recommendation",
-                        "platform": "web",
-                        "target_community": "",
-                        "rationale": "Developers searching web discussions for automation tools",
-                    },
-                ]
-            })
-
-        if "qualify lead" in lower or "lead qualification" in lower:
-            return json.dumps({
-                "customer_problem": "Our team wastes hours every Monday manually deduplicating GitHub bug reports and prioritizing sprint tickets.",
-                "pain_point_category": "Backlog Inefficiency",
-                "profile_match": "High match - Engineering Lead managing active GitHub repo",
-                "competitor_mentioned": "Jira and GitHub Projects",
-                "purchase_intent": "High",
-                "urgency": "High",
-                "product_fit_explanation": "SuperTask specifically eliminates manual triage and deduplicates issues automatically.",
-                "evidence": "Author asked: 'Is there any tool that connects to GitHub and automatically detects duplicate issues before sprint planning?'",
-                "score_breakdown": {
-                    "icp_match": 24,
-                    "problem_fit": 29,
-                    "buying_intent": 18,
-                    "urgency": 14,
-                    "recency": 9,
-                    "total": 94,
-                    "explanation": "Clear role match (Engineering Lead), acute stated problem (duplicate triage), asking for tool recommendations with high urgency.",
-                },
-                "score": 94,
-                "classification": "high_potential",
-                "confidence": 0.92,
-            })
-
-        if "generate replies" in lower or "reply generation" in lower:
-            return json.dumps({
-                "value_first": "One quick way to tackle this without adding heavy tools is using GitHub Issue Templates with strict required labels and GitHub CLI scripts in your CI to grep existing open issue titles. Also, establishing a strict triage rotation where only one developer handles incoming issues each sprint prevents everyone's focus from being fragmented.",
-                "product_aware": "We ran into this exact headache with GitHub issue duplication, which is why we built SuperTask (disclosure: I'm part of the team). It runs automatically via GitHub Actions to scan incoming issues against existing open/closed tickets and flags semantic duplicates instantly. Even if you don't use a dedicated tool, setting up GitHub label automation in CI can save a ton of time.",
-                "disclosure": "Disclosure: I am affiliated with SuperTask.",
-            })
-
-        return json.dumps({"status": "ok", "message": "Mock completion response"})
+            },
+            payload,
+        )
+        try:
+            return "".join(b.get("text", "") for b in data["content"] if b.get("type") == "text")
+        except (KeyError, TypeError) as exc:
+            raise LLMProviderError("Anthropic returned no text.") from exc

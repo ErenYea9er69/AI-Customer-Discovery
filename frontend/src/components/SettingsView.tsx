@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Save,
   Download,
   ShieldAlert,
   CheckCircle2,
+  AlertTriangle,
 } from 'lucide-react';
-import type { PostingSettings } from '../types';
+import type { PostingSettings, LLMSettings } from '../types';
 import { api } from '../api';
 
 export const SettingsView: React.FC = () => {
@@ -13,47 +14,93 @@ export const SettingsView: React.FC = () => {
     mode: 'manual',
     daily_limit: 5,
     min_interval_seconds: 600,
-    allowed_communities: ['r/startups', 'r/SaaS', 'r/Entrepreneur', 'r/programming', 'r/devops'],
+    allowed_communities: [
+      'r/startups',
+      'r/SaaS',
+      'r/Entrepreneur',
+      'r/smallbusiness',
+      'r/devops',
+      'r/webdev',
+    ],
     emergency_stop: false,
+    reddit_client_id: '',
+    reddit_client_secret: '',
+    reddit_username: '',
+    reddit_password: '',
+    github_token: '',
+    has_reddit_password: false,
+    has_reddit_client_secret: false,
+    has_github_token: false,
   });
 
-  const [llmSettings, setLlmSettings] = useState({
-    provider: 'mock',
-    model: 'gpt-4o',
+  const [llmSettings, setLlmSettings] = useState<LLMSettings>({
+    provider: 'gemini',
+    model: 'gemini-2.5-flash',
     api_key: '',
+    has_api_key: false,
+    configured: false,
   });
 
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const loadSettings = async () => {
+  const loadSettings = useCallback(async () => {
     try {
       const data = await api.getSettings();
-      if (data.posting_settings) setPostingSettings(data.posting_settings);
-      if (data.llm_settings) setLlmSettings(data.llm_settings);
+      if (data.posting_settings) {
+        setPostingSettings((prev) => ({
+          ...prev,
+          ...data.posting_settings,
+          reddit_password: '',
+          reddit_client_secret: '',
+          github_token: '',
+        }));
+      }
+      if (data.llm_settings) {
+        setLlmSettings((prev) => ({
+          ...prev,
+          ...data.llm_settings,
+          api_key: '',
+        }));
+      }
     } catch (e) {
-      console.error(e);
+      setErrorMessage(e instanceof Error ? e.message : 'Could not load current settings.');
     }
-  };
+  }, []);
 
   useEffect(() => {
     void loadSettings();
-  }, []);
+  }, [loadSettings]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    setErrorMessage(null);
     try {
+      const postPayload: Partial<PostingSettings> = { ...postingSettings };
+      if (!postPayload.reddit_password) delete postPayload.reddit_password;
+      if (!postPayload.reddit_client_secret) delete postPayload.reddit_client_secret;
+      if (!postPayload.github_token) delete postPayload.github_token;
+
+      const llmPayload: Partial<LLMSettings> = {
+        provider: llmSettings.provider,
+        model: llmSettings.model,
+      };
+      if (llmSettings.api_key && llmSettings.api_key.trim()) {
+        llmPayload.api_key = llmSettings.api_key.trim();
+      }
+
       await api.updateSettings({
-        posting_settings: postingSettings,
-        llm_settings: llmSettings,
+        posting_settings: postPayload,
+        llm_settings: llmPayload,
       });
-      setSavedMessage('Settings saved successfully.');
-      setErrorMessage(null);
-      setTimeout(() => setSavedMessage(null), 3000);
+
+      setSavedMessage('Settings saved successfully. Changes applied to active engine.');
+      await loadSettings();
+      setTimeout(() => setSavedMessage(null), 3500);
     } catch (err: any) {
-      setErrorMessage(`Save error: ${err.message}`);
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to save settings.');
     } finally {
       setSaving(false);
     }
@@ -65,19 +112,20 @@ export const SettingsView: React.FC = () => {
         <div>
           <h1>Settings & Safety Controls</h1>
           <p>
-            Configure LLM providers, community whitelists, rate limits, and publishing safety mechanisms.
+            Configure LLM providers, community whitelists, rate limits, platform credentials, and publishing safety gates.
           </p>
         </div>
       </div>
 
       {savedMessage && (
-        <div className="notice notice-info" role="status">
+        <div className="notice notice-success" role="status">
           <CheckCircle2 size={16} />
           <span>{savedMessage}</span>
         </div>
       )}
       {errorMessage && (
         <div className="notice notice-error" role="alert">
+          <AlertTriangle size={16} />
           <span>{errorMessage}</span>
           <button className="btn btn-secondary btn-sm" onClick={() => setErrorMessage(null)}>
             Dismiss
@@ -137,17 +185,32 @@ export const SettingsView: React.FC = () => {
               style={{ width: '20px', height: '20px', cursor: 'pointer' }}
             />
             <span style={{ color: postingSettings.emergency_stop ? 'var(--danger-text)' : 'var(--text-main)' }}>
-              {postingSettings.emergency_stop ? 'STOP ACTIVE (BLOCKED)' : 'Normal Active Operation'}
+              {postingSettings.emergency_stop ? 'STOP ACTIVE (HALTED)' : 'Normal Active Operation'}
             </span>
           </label>
         </section>
 
         {/* AI Provider Configuration */}
         <section className="panel">
-          <div className="panel-header">
+          <div className="panel-header" style={{ flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
             <div>
               <h2>AI Model Provider</h2>
-              <p>Select which LLM powers business understanding extraction and personalized reply drafts.</p>
+              <p>Configure which LLM powers profile extraction, search planning, and personalized reply generation.</p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+              {llmSettings.configured ? (
+                <span className="badge badge-high" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <CheckCircle2 size={13} />
+                  AI Ready & Configured
+                </span>
+              ) : llmSettings.provider === 'mock' ? (
+                <span className="badge badge-low">Mock Engine (Test Mode)</span>
+              ) : (
+                <span className="badge badge-amber" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <AlertTriangle size={13} />
+                  Key Required for Live AI
+                </span>
+              )}
             </div>
           </div>
 
@@ -160,13 +223,27 @@ export const SettingsView: React.FC = () => {
                 id="settings-llm-provider"
                 className="select"
                 value={llmSettings.provider}
-                onChange={(e) => setLlmSettings({ ...llmSettings, provider: e.target.value })}
+                onChange={(e) => {
+                  const p = e.target.value;
+                  const defaultModels: Record<string, string> = {
+                    openai: 'gpt-4o',
+                    gemini: 'gemini-2.5-flash',
+                    groq: 'llama-3.3-70b-versatile',
+                    anthropic: 'claude-sonnet-5-5',
+                    mock: 'mock',
+                  };
+                  setLlmSettings({
+                    ...llmSettings,
+                    provider: p,
+                    model: defaultModels[p] || '',
+                  });
+                }}
               >
-                <option value="mock">Local Heuristic Engine (Mock / Zero-Cost)</option>
-                <option value="openai">OpenAI (GPT-4o)</option>
-                <option value="gemini">Google Gemini (Gemini 2.0 Flash)</option>
-                <option value="groq">Groq (Llama 3.3 70B)</option>
-                <option value="anthropic">Anthropic (Claude 3.5 Sonnet)</option>
+                <option value="gemini">Google Gemini (gemini-2.5-flash)</option>
+                <option value="openai">OpenAI (gpt-4o)</option>
+                <option value="groq">Groq (llama-3.3-70b-versatile)</option>
+                <option value="anthropic">Anthropic (claude-sonnet-5-5)</option>
+                <option value="mock">Local Heuristic Mock (Testing Only)</option>
               </select>
             </div>
 
@@ -178,7 +255,7 @@ export const SettingsView: React.FC = () => {
                 id="settings-llm-model"
                 type="text"
                 className="input"
-                placeholder="e.g. gpt-4o or gemini-2.0-flash"
+                placeholder="e.g. gemini-2.5-flash or gpt-4o"
                 value={llmSettings.model || ''}
                 onChange={(e) => setLlmSettings({ ...llmSettings, model: e.target.value })}
               />
@@ -187,21 +264,31 @@ export const SettingsView: React.FC = () => {
 
           <div className="form-group">
             <label htmlFor="settings-llm-key" className="label">
-              API Key (Stored locally in SQLite/env, never shared)
+              Provider API Key
+              {llmSettings.has_api_key && (
+                <span style={{ color: 'var(--success)', fontWeight: 600, marginLeft: '8px' }}>
+                  ✓ Stored on server
+                </span>
+              )}
             </label>
             <input
               id="settings-llm-key"
               type="password"
               className="input"
               placeholder={
-                llmSettings.provider === 'mock'
-                  ? 'Not required for local heuristic mock'
+                llmSettings.has_api_key
+                  ? '•••••••••••••••• (Leave blank to keep current key)'
+                  : llmSettings.provider === 'mock'
+                  ? 'Not needed for mock mode'
                   : 'Enter API key…'
               }
               value={llmSettings.api_key || ''}
               onChange={(e) => setLlmSettings({ ...llmSettings, api_key: e.target.value })}
               disabled={llmSettings.provider === 'mock'}
             />
+            <div className="helper-text" style={{ marginTop: '4px' }}>
+              Stored securely in the local SQLite database. Never exposed in API responses or shared externally.
+            </div>
           </div>
         </section>
 
@@ -210,7 +297,7 @@ export const SettingsView: React.FC = () => {
           <div className="panel-header">
             <div>
               <h2>Publishing Controls & Safety Rules</h2>
-              <p>Enforce strict community boundaries and rate limiting to maintain account standing.</p>
+              <p>Enforce strict community boundaries and rate limiting to maintain account standing and community trust.</p>
             </div>
           </div>
 
@@ -227,9 +314,9 @@ export const SettingsView: React.FC = () => {
                   setPostingSettings({ ...postingSettings, mode: e.target.value as any })
                 }
               >
-                <option value="draft">Draft Mode Only (Read-Only Review)</option>
+                <option value="draft">Draft Mode Only (Copy & View Only)</option>
                 <option value="manual">Manual Approval (Recommended Default)</option>
-                <option value="automatic">Controlled Automatic Posting</option>
+                <option value="automatic">Controlled Automatic Posting (API)</option>
               </select>
             </div>
 
@@ -276,13 +363,13 @@ export const SettingsView: React.FC = () => {
 
           <div className="form-group">
             <label htmlFor="settings-allowed-communities" className="label">
-              Allowed Communities Whitelist (Comma-separated)
+              Allowed Reddit Communities Whitelist (Comma-separated)
             </label>
             <input
               id="settings-allowed-communities"
               type="text"
               className="input"
-              placeholder="r/startups, r/SaaS, r/Entrepreneur, r/programming"
+              placeholder="r/startups, r/SaaS, r/Entrepreneur, r/smallbusiness"
               value={postingSettings.allowed_communities.join(', ')}
               onChange={(e) =>
                 setPostingSettings({
@@ -295,8 +382,117 @@ export const SettingsView: React.FC = () => {
               }
             />
             <div className="helper-text" style={{ marginTop: '4px' }}>
-              The agent strictly refuses to discover or post in any community not explicitly listed here.
+              The agent strictly refuses to post to any Reddit community not explicitly listed here.
             </div>
+          </div>
+        </section>
+
+        {/* Platform API Credentials (Reddit & GitHub) */}
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Platform API Credentials (Optional)</h2>
+              <p>Configure official credentials to enable direct API posting for Reddit and GitHub. If omitted, replies use clipboard copy mode.</p>
+            </div>
+          </div>
+
+          <div className="form-grid-2" style={{ marginBottom: 'var(--sp-4)' }}>
+            <div className="form-group">
+              <label htmlFor="settings-reddit-client-id" className="label">
+                Reddit App Client ID
+              </label>
+              <input
+                id="settings-reddit-client-id"
+                type="text"
+                className="input"
+                placeholder="e.g. d1F_x..."
+                value={postingSettings.reddit_client_id || ''}
+                onChange={(e) => setPostingSettings({ ...postingSettings, reddit_client_id: e.target.value })}
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="settings-reddit-client-secret" className="label">
+                Reddit App Secret
+                {postingSettings.has_reddit_client_secret && (
+                  <span style={{ color: 'var(--success)', fontWeight: 600, marginLeft: '8px' }}>
+                    ✓ Stored
+                  </span>
+                )}
+              </label>
+              <input
+                id="settings-reddit-client-secret"
+                type="password"
+                className="input"
+                placeholder={
+                  postingSettings.has_reddit_client_secret
+                    ? '•••••••••••••••• (Leave blank to keep)'
+                    : 'Reddit client secret'
+                }
+                value={postingSettings.reddit_client_secret || ''}
+                onChange={(e) => setPostingSettings({ ...postingSettings, reddit_client_secret: e.target.value })}
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="settings-reddit-username" className="label">
+                Reddit Username
+              </label>
+              <input
+                id="settings-reddit-username"
+                type="text"
+                className="input"
+                placeholder="Reddit account username"
+                value={postingSettings.reddit_username || ''}
+                onChange={(e) => setPostingSettings({ ...postingSettings, reddit_username: e.target.value })}
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="settings-reddit-password" className="label">
+                Reddit Password
+                {postingSettings.has_reddit_password && (
+                  <span style={{ color: 'var(--success)', fontWeight: 600, marginLeft: '8px' }}>
+                    ✓ Stored
+                  </span>
+                )}
+              </label>
+              <input
+                id="settings-reddit-password"
+                type="password"
+                className="input"
+                placeholder={
+                  postingSettings.has_reddit_password
+                    ? '•••••••••••••••• (Leave blank to keep)'
+                    : 'Reddit account password'
+                }
+                value={postingSettings.reddit_password || ''}
+                onChange={(e) => setPostingSettings({ ...postingSettings, reddit_password: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="settings-github-token" className="label">
+              GitHub Personal Access Token (for Issue Comments)
+              {postingSettings.has_github_token && (
+                <span style={{ color: 'var(--success)', fontWeight: 600, marginLeft: '8px' }}>
+                  ✓ Stored
+                </span>
+              )}
+            </label>
+            <input
+              id="settings-github-token"
+              type="password"
+              className="input"
+              placeholder={
+                postingSettings.has_github_token
+                  ? '•••••••••••••••• (Leave blank to keep)'
+                  : 'ghp_...'
+              }
+              value={postingSettings.github_token || ''}
+              onChange={(e) => setPostingSettings({ ...postingSettings, github_token: e.target.value })}
+            />
           </div>
         </section>
 
@@ -305,7 +501,7 @@ export const SettingsView: React.FC = () => {
           <div className="panel-header">
             <div>
               <h2>Data Export & CRM Sync</h2>
-              <p>Download discovered leads, qualification scores, and discussion URLs for CRM import.</p>
+              <p>Download discovered leads, qualification scores, and discussion URLs for CRM import or spreadsheet analysis.</p>
             </div>
           </div>
 

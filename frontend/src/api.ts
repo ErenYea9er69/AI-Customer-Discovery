@@ -4,16 +4,88 @@ import type {
   Campaign,
   GeneratedReply,
   LeadQualification,
+  PlatformInfo,
   PostingSettings,
+  SettingsPayload,
 } from './types';
 
 const BASE_URL = '/api';
+
+function formatApiError(status: number, data: any, rawText: string): string {
+  if (data && data.detail) {
+    if (typeof data.detail === 'string') {
+      const msg = data.detail.trim();
+      if (msg.includes('Confirm the business profile before launching')) {
+        return 'Please review and confirm your Business Profile before launching a campaign.';
+      }
+      if (msg.includes('A campaign is already running')) {
+        return 'Another campaign is currently running. You can cancel it or wait for it to complete.';
+      }
+      if (msg.includes('Campaign is not running')) {
+        return 'This campaign has already completed or is not currently running.';
+      }
+      if (msg.includes('Rate limit exceeded')) {
+        return 'Too many requests in a short period. Please wait a moment and try again.';
+      }
+      if (msg.includes('Business profile required')) {
+        return 'A business profile is required before generating replies.';
+      }
+      if (msg.includes('A custom reply needs text')) {
+        return 'Please write your custom reply text before approving.';
+      }
+      if (msg.includes('Invalid or missing API key')) {
+        return 'API authentication failed. Please check your API key.';
+      }
+      if (msg.includes('Set AGENT_REACH_API_KEY')) {
+        return 'Remote access is restricted. Set AGENT_REACH_API_KEY on the server for external connections.';
+      }
+      return msg;
+    }
+    if (Array.isArray(data.detail)) {
+      const items = data.detail
+        .map((item: any) => {
+          const field = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : 'field';
+          return `${field}: ${item.msg || 'invalid value'}`;
+        })
+        .join(', ');
+      return `Input validation error (${items})`;
+    }
+  }
+
+  if (status === 400) return 'Invalid request. Please check the provided information.';
+  if (status === 401) return 'Authentication required. Please check your credentials.';
+  if (status === 403) return 'Access denied. You do not have permission for this request.';
+  if (status === 404) return 'The requested resource was not found.';
+  if (status === 409) return 'Request conflict. An operation is already in progress or cannot be completed.';
+  if (status === 429) return 'Rate limit exceeded. Please wait a moment before trying again.';
+  if (status === 502) return 'AI provider or external service error. Please verify your AI settings and keys.';
+  if (status >= 500) return 'An unexpected server error occurred. Please check the backend logs.';
+
+  return rawText ? rawText.slice(0, 160) : `Request failed (HTTP ${status}).`;
+}
+
+async function handleResponse<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  let json: any = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    // not JSON
+  }
+
+  if (!res.ok) {
+    const errorMsg = formatApiError(res.status, json, text);
+    throw new Error(errorMsg);
+  }
+
+  return (json ?? {}) as T;
+}
 
 export const api = {
   // Profile
   async getProfile(): Promise<BusinessProfile | null> {
     const res = await fetch(`${BASE_URL}/profile`);
-    const data = await res.json();
+    const data = await handleResponse<{ profile: BusinessProfile | null }>(res);
     return data.profile;
   },
 
@@ -23,8 +95,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
+    const data = await handleResponse<{ ok: boolean; profile: BusinessProfile }>(res);
     return data.profile;
   },
 
@@ -32,10 +103,9 @@ export const api = {
     const res = await fetch(`${BASE_URL}/profile/extract-manual`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, description }),
+      body: JSON.stringify({ name: name || undefined, description }),
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
+    const data = await handleResponse<{ ok: boolean; profile: BusinessProfile }>(res);
     return data.profile;
   },
 
@@ -45,8 +115,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(profile),
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
+    const data = await handleResponse<{ ok: boolean; profile: BusinessProfile }>(res);
     return data.profile;
   },
 
@@ -54,16 +123,15 @@ export const api = {
     const res = await fetch(`${BASE_URL}/profile/confirm`, {
       method: 'POST',
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
+    const data = await handleResponse<{ ok: boolean; profile: BusinessProfile }>(res);
     return data.profile;
   },
 
   // Campaigns
   async listCampaigns(): Promise<Campaign[]> {
     const res = await fetch(`${BASE_URL}/campaigns`);
-    const data = await res.json();
-    return data.campaigns;
+    const data = await handleResponse<{ campaigns: Campaign[] }>(res);
+    return data.campaigns || [];
   },
 
   async launchCampaign(name: string, platforms: string[], maxLeads: number): Promise<string> {
@@ -72,15 +140,27 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, platforms, max_leads: maxLeads }),
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
+    const data = await handleResponse<{ ok: boolean; campaign_id: string }>(res);
     return data.campaign_id;
   },
 
   async getCampaign(id: string): Promise<Campaign> {
     const res = await fetch(`${BASE_URL}/campaigns/${id}`);
-    const data = await res.json();
+    const data = await handleResponse<{ campaign: Campaign }>(res);
     return data.campaign;
+  },
+
+  async cancelCampaign(id: string): Promise<{ ok: boolean; message: string }> {
+    const res = await fetch(`${BASE_URL}/campaigns/${id}/cancel`, {
+      method: 'POST',
+    });
+    return await handleResponse<{ ok: boolean; message: string }>(res);
+  },
+
+  // Platforms
+  async getPlatforms(): Promise<PlatformInfo> {
+    const res = await fetch(`${BASE_URL}/platforms`);
+    return await handleResponse<PlatformInfo>(res);
   },
 
   // Leads
@@ -105,31 +185,30 @@ export const api = {
     if (filters.offset !== undefined) params.append('offset', filters.offset.toString());
 
     const res = await fetch(`${BASE_URL}/leads?${params.toString()}`);
-    const data = await res.json();
-    return data.leads;
+    const data = await handleResponse<{ leads: LeadQualification[] }>(res);
+    return data.leads || [];
   },
 
   async getLeadCounts(): Promise<Record<string, number>> {
     const res = await fetch(`${BASE_URL}/leads/counts`);
-    return await res.json();
+    return await handleResponse<Record<string, number>>(res);
   },
 
-  async getLead(id: string): Promise<{ lead: LeadQualification; reply?: GeneratedReply }> {
+  async getLead(id: string): Promise<{ lead: LeadQualification; reply?: GeneratedReply | null }> {
     const res = await fetch(`${BASE_URL}/leads/${id}`);
-    if (!res.ok) throw new Error(await res.text());
-    return await res.json();
+    return await handleResponse<{ lead: LeadQualification; reply?: GeneratedReply | null }>(res);
   },
 
   // Replies
   async getReply(leadId: string): Promise<GeneratedReply> {
     const res = await fetch(`${BASE_URL}/replies/${leadId}`);
-    const data = await res.json();
+    const data = await handleResponse<{ reply: GeneratedReply }>(res);
     return data.reply;
   },
 
   async generateReply(leadId: string): Promise<GeneratedReply> {
     const res = await fetch(`${BASE_URL}/replies/${leadId}/generate`, { method: 'POST' });
-    const data = await res.json();
+    const data = await handleResponse<{ ok: boolean; reply: GeneratedReply }>(res);
     return data.reply;
   },
 
@@ -139,38 +218,56 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ edited_reply: editedReply, selected_version: selectedVersion }),
     });
-    const data = await res.json();
+    const data = await handleResponse<{ ok: boolean; reply: GeneratedReply }>(res);
     return data.reply;
   },
 
-  async publishReply(leadId: string): Promise<{ success: boolean; action?: string; text?: string; target_url?: string; reason?: string; message?: string }> {
+  async publishReply(leadId: string): Promise<{
+    success: boolean;
+    action?: string;
+    text?: string;
+    target_url?: string;
+    reason?: string;
+    message?: string;
+  }> {
     const res = await fetch(`${BASE_URL}/replies/${leadId}/publish`, { method: 'POST' });
-    return await res.json();
+    return await handleResponse<{
+      success: boolean;
+      action?: string;
+      text?: string;
+      target_url?: string;
+      reason?: string;
+      message?: string;
+    }>(res);
   },
 
   async confirmPublished(leadId: string): Promise<{ success: boolean; message?: string; reason?: string }> {
     const res = await fetch(`${BASE_URL}/replies/${leadId}/confirm-published`, { method: 'POST' });
-    return await res.json();
+    return await handleResponse<{ success: boolean; message?: string; reason?: string }>(res);
   },
 
   // Analytics
   async getAnalytics(): Promise<AnalyticsSummary> {
     const res = await fetch(`${BASE_URL}/analytics`);
-    return await res.json();
+    return await handleResponse<AnalyticsSummary>(res);
   },
 
   // Settings
-  async getSettings(): Promise<{ posting_settings: PostingSettings; llm_settings: any }> {
+  async getSettings(): Promise<SettingsPayload> {
     const res = await fetch(`${BASE_URL}/settings`);
-    return await res.json();
+    return await handleResponse<SettingsPayload>(res);
   },
 
-  async updateSettings(settings: { posting_settings?: PostingSettings; llm_settings?: any }): Promise<void> {
-    await fetch(`${BASE_URL}/settings`, {
+  async updateSettings(settings: {
+    posting_settings?: Partial<PostingSettings>;
+    llm_settings?: Record<string, any>;
+  }): Promise<void> {
+    const res = await fetch(`${BASE_URL}/settings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings),
     });
+    await handleResponse<{ ok: boolean }>(res);
   },
 
   getExportUrl(format: 'json' | 'csv', minScore: number = 0): string {

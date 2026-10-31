@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Copy,
   ExternalLink,
@@ -7,6 +7,9 @@ import {
   Send,
   LoaderCircle,
   Compass,
+  AlertTriangle,
+  Lock,
+  Sparkles,
 } from 'lucide-react';
 import type { GeneratedReply, LeadQualification } from '../types';
 import { api } from '../api';
@@ -29,9 +32,12 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
   const [editedText, setEditedText] = useState('');
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [publishStatus, setPublishStatus] = useState<string | null>(null);
+  const [publishStatus, setPublishStatus] = useState<{
+    type: 'info' | 'error' | 'success';
+    message: string;
+  } | null>(null);
 
-  const loadLeadAndReply = async (id: string) => {
+  const loadLeadAndReply = useCallback(async (id: string) => {
     setLoading(true);
     setPublishStatus(null);
     try {
@@ -54,11 +60,14 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
         setEditedText(generated.value_first);
       }
     } catch (err: any) {
-      console.error(err);
+      setPublishStatus({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Could not load discussion and reply draft.',
+      });
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (initialLeadId) {
@@ -66,12 +75,12 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
     } else if (!selectedLeadId && leads.length > 0) {
       setSelectedLeadId(leads[0].id);
     }
-  }, [initialLeadId, leads]);
+  }, [initialLeadId, leads, selectedLeadId]);
 
   useEffect(() => {
     if (!selectedLeadId) return;
     void loadLeadAndReply(selectedLeadId);
-  }, [selectedLeadId]);
+  }, [selectedLeadId, loadLeadAndReply]);
 
   const handleSelectVersion = (version: 'value_first' | 'product_aware') => {
     if (!reply) return;
@@ -81,12 +90,25 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
 
   const handleApprove = async () => {
     if (!selectedLeadId) return;
+    if (selectedVersion === 'custom' && !editedText.trim()) {
+      setPublishStatus({
+        type: 'error',
+        message: 'Please write your reply before approving a custom draft.',
+      });
+      return;
+    }
     try {
       const updated = await api.approveReply(selectedLeadId, editedText, selectedVersion);
       setReply(updated);
-      setPublishStatus('Reply approved. Ready to copy or publish.');
+      setPublishStatus({
+        type: 'success',
+        message: 'Reply approved. Ready to copy or publish.',
+      });
     } catch (err: any) {
-      setPublishStatus(`Approval error: ${err.message}`);
+      setPublishStatus({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Approval failed.',
+      });
     }
   };
 
@@ -95,27 +117,49 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
     try {
       const res = await api.publishReply(selectedLeadId);
       if (res.success) {
-        setPublishStatus(res.message || 'Reply copied to clipboard. Confirm once submitted.');
+        setPublishStatus({
+          type: 'success',
+          message: res.message || 'Reply copied to clipboard. Once posted on the platform, click Confirm It Was Posted.',
+        });
         if (reply) setReply({ ...reply, status: 'pending_manual_post' });
         await navigator.clipboard.writeText(editedText);
         setCopied(true);
         setTimeout(() => setCopied(false), 2500);
       } else {
-        setPublishStatus(`Failed: ${res.reason}`);
+        setPublishStatus({
+          type: 'error',
+          message: res.reason || 'Publishing check failed. Please review settings.',
+        });
       }
     } catch (err: any) {
-      setPublishStatus(`Error: ${err.message}`);
+      setPublishStatus({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Could not proceed with posting.',
+      });
     }
   };
 
   const handleConfirmPublished = async () => {
     if (!selectedLeadId) return;
-    const res = await api.confirmPublished(selectedLeadId);
-    if (res.success) {
-      setPublishStatus(res.message || 'Publication confirmed and recorded in history.');
-      if (reply) setReply({ ...reply, status: 'published' });
-    } else {
-      setPublishStatus(`Could not confirm: ${res.reason || 'Try again.'}`);
+    try {
+      const res = await api.confirmPublished(selectedLeadId);
+      if (res.success) {
+        setPublishStatus({
+          type: 'success',
+          message: res.message || 'Publication confirmed and recorded in history.',
+        });
+        if (reply) setReply({ ...reply, status: 'published' });
+      } else {
+        setPublishStatus({
+          type: 'error',
+          message: res.reason || 'Could not record confirmation. Please try again.',
+        });
+      }
+    } catch (err: any) {
+      setPublishStatus({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Confirmation request failed.',
+      });
     }
   };
 
@@ -147,23 +191,33 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
     );
   }
 
+  const th = lead?.thread_health;
+  const isLocked = th?.commentable === false;
+  const isCrowded = th?.crowded === true;
+
   return (
     <div className="page-shell">
       <div className="page-heading">
         <div>
           <h1>Reply Studio</h1>
           <p>
-            Generate helpful, value-first replies with transparent affiliation disclosures and human approval gates.
+            Review and personalize helpful, value-first replies with transparent affiliation disclosures and human approval gates.
           </p>
         </div>
       </div>
 
       {publishStatus && (
         <div
-          className={`notice ${publishStatus.toLowerCase().includes('error') ? 'notice-error' : 'notice-info'}`}
+          className={`notice ${
+            publishStatus.type === 'error'
+              ? 'notice-error'
+              : publishStatus.type === 'success'
+              ? 'notice-success'
+              : 'notice-info'
+          }`}
           role="status"
         >
-          <span>{publishStatus}</span>
+          <span>{publishStatus.message}</span>
           <button className="btn btn-secondary btn-sm" onClick={() => setPublishStatus(null)}>
             Dismiss
           </button>
@@ -188,7 +242,7 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
             <select
               id="reply-lead-selector"
               className="select"
-              style={{ maxWidth: '480px' }}
+              style={{ maxWidth: '520px' }}
               value={selectedLeadId}
               onChange={(e) => setSelectedLeadId(e.target.value)}
             >
@@ -237,9 +291,20 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
                   justifyContent: 'space-between',
                   alignItems: 'center',
                   marginBottom: 'var(--sp-2)',
+                  flexWrap: 'wrap',
+                  gap: 'var(--sp-2)',
                 }}
               >
-                <span className="badge badge-medium">{lead.platform}</span>
+                <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center' }}>
+                  <span className="badge badge-medium">{lead.platform}</span>
+                  {lead.judged_by === 'llm' && (
+                    <span className="badge badge-high">
+                      <Sparkles size={11} style={{ display: 'inline', marginRight: '3px' }} />
+                      AI Scored
+                    </span>
+                  )}
+                </div>
+
                 <a
                   href={lead.url}
                   target="_blank"
@@ -262,8 +327,55 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
               </h2>
 
               <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', marginBottom: 'var(--sp-3)' }}>
-                Posted by <strong>{lead.author}</strong> in <strong>{lead.community}</strong> · {lead.published_at || 'Recent'}
+                Posted by <strong>{lead.author || 'Author'}</strong> in <strong>{lead.community}</strong> · {lead.published_at || 'Recent'}
               </div>
+
+              {/* Thread Health Bar */}
+              {th && (
+                <div
+                  style={{
+                    background: isLocked ? 'var(--danger-bg)' : 'var(--surface-subtle)',
+                    border: `1px solid ${isLocked ? 'var(--danger-border)' : 'var(--border)'}`,
+                    borderRadius: 'var(--r-sm)',
+                    padding: 'var(--sp-2) var(--sp-3)',
+                    marginBottom: 'var(--sp-3)',
+                    display: 'flex',
+                    gap: 'var(--sp-3)',
+                    alignItems: 'center',
+                    fontSize: 'var(--fs-2xs)',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  {isLocked ? (
+                    <span style={{ color: 'var(--danger-text)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Lock size={12} />
+                      Archived / Locked on Platform
+                    </span>
+                  ) : (
+                    <span style={{ color: 'var(--success-text)', fontWeight: 600 }}>
+                      Open for Replies
+                    </span>
+                  )}
+
+                  {th.num_comments !== undefined && th.num_comments !== null && (
+                    <span style={{ color: 'var(--text-subtle)' }}>
+                      {th.num_comments} replies
+                    </span>
+                  )}
+
+                  {isCrowded && (
+                    <span className="badge badge-amber" style={{ fontSize: '10px' }}>
+                      Crowded thread
+                    </span>
+                  )}
+
+                  {th.age_days !== undefined && th.age_days !== null && (
+                    <span style={{ color: 'var(--text-subtle)' }}>
+                      {th.age_days}d old
+                    </span>
+                  )}
+                </div>
+              )}
 
               <div
                 style={{
@@ -284,12 +396,12 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
 
             {/* Extracted Problem & Product Angle */}
             <div className="card" style={{ padding: 'var(--sp-5)' }}>
-              <h3 className="section-title">Identified Need & Opportunity</h3>
+              <h3 className="section-title">Identified Problem & Product Fit</h3>
               <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-main)', marginBottom: 'var(--sp-2)' }}>
                 {lead.customer_problem}
               </div>
               <div className="fit-callout">
-                <strong>Why your product fits:</strong> {lead.product_fit_explanation}
+                <strong>Why your product solves this:</strong> {lead.product_fit_explanation}
               </div>
             </div>
           </div>
@@ -315,6 +427,16 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Warning if thread is locked */}
+            {isLocked && (
+              <div className="notice notice-warning" style={{ margin: 0 }}>
+                <AlertTriangle size={15} />
+                <span>
+                  This thread is locked or archived. You can copy the reply for notes or related discussions, but direct posting will be rejected by the platform.
+                </span>
+              </div>
+            )}
 
             <div className="form-group" style={{ flex: 1 }}>
               <label htmlFor="reply-editor-textarea" className="label">

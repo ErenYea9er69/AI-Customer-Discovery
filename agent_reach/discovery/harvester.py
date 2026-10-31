@@ -1,644 +1,523 @@
 # -*- coding: utf-8 -*-
-"""Multi-platform community harvester for Reddit, Quora, X (Twitter), Web, and GitHub."""
+"""Community harvester for Reddit, Hacker News, Quora, X, GitHub and the open web.
+
+Every candidate passes thread verification before it becomes a DiscoveredItem.
+The harvester never invents data. When a source fails it logs the failure,
+counts it in `diagnostics`, and returns nothing.
+"""
 
 from __future__ import annotations
 
 import datetime
 import html
-import json
+import logging
 import re
 import time
 import urllib.parse
-from typing import Any, Dict, List, Optional
+from collections import Counter
+from typing import Any, Dict, Iterable, List, Optional
+
 import requests
 
 from agent_reach.discovery.models import DiscoveredItem, SearchQuery
 from agent_reach.discovery.storage import DiscoveryStorage
+from agent_reach.discovery.thread_check import (
+    PLATFORM_MAX_AGE_DAYS,
+    USER_AGENT,
+    RedditMeta,
+    ThreadHealth,
+    age_in_days,
+    canonical_url,
+    classify_web_result,
+    host_of,
+    is_promotional,
+    judge_github,
+    judge_hn,
+    judge_reddit,
+    reddit_post_id,
+)
 
-_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 AgentReach/2.0"
+log = logging.getLogger("agent_reach.discovery")
+
+_SUB_RE = re.compile(r"^r/[A-Za-z0-9_]{3,21}$")
+_QUORA_SKIP = re.compile(r"^/(profile|topic|q|unanswered|search|spaces?)(/|$)", re.I)
+_TWITTER_INDEXERS = ("threadreaderapp.com", "en.rattibha.com")
+_SNOWFLAKE_EPOCH_MS = 1288834974657
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _clean_query(query: str) -> str:
+    return query.replace('"', "").replace("'", "").strip()
+
+
+def _strip_html(raw: str) -> str:
+    text = re.sub(r"<p>|<br\s*/?>", "\n", raw or "")
+    return html.unescape(_TAG_RE.sub("", text)).strip()
 
 
 class CommunityHarvester:
-    """Executes search queries against Reddit, Quora, X (Twitter), Web, and GitHub."""
+    """Runs one search query and returns verified, reply-ready threads."""
 
-    def __init__(self, storage: Optional[DiscoveryStorage] = None):
+    def __init__(
+        self,
+        storage: Optional[DiscoveryStorage] = None,
+        reddit_meta: Optional[RedditMeta] = None,
+        session: Optional[requests.Session] = None,
+    ):
         self.storage = storage or DiscoveryStorage()
+        self.session = session or requests.Session()
+        self.reddit_meta = reddit_meta or RedditMeta(session=self.session)
+        self.exclude_hosts: List[str] = []   # the user's own site and competitor sites
+        self.diagnostics: Counter = Counter()
+
+    # ── Routing ──
+
+    def set_exclusions(self, hosts: Iterable[str]) -> None:
+        self.exclude_hosts = [h.lower() for h in hosts if h]
 
     def execute_query(self, query: SearchQuery, limit: int = 5) -> List[DiscoveredItem]:
-        """Route query to the appropriate platform harvester."""
         platform = query.platform.lower()
-        if platform == "reddit":
-            return self.search_reddit(query.query, subreddit=query.target_community, limit=limit)
-        elif platform in ("quora",):
-            return self.search_quora(query.query, limit=limit)
-        elif platform in ("twitter", "x"):
-            return self.search_twitter(query.query, limit=limit)
-        elif platform == "github":
-            return self.search_github(query.query, limit=limit)
-        else:
+        try:
+            if platform == "reddit":
+                return self.search_reddit(query.query, subreddit=query.target_community, limit=limit)
+            if platform == "hackernews":
+                return self.search_hackernews(query.query, limit=limit)
+            if platform == "quora":
+                return self.search_quora(query.query, limit=limit)
+            if platform in ("twitter", "x"):
+                return self.search_twitter(query.query, limit=limit)
+            if platform == "github":
+                return self.search_github(query.query, limit=limit)
             return self.search_web(query.query, limit=limit)
+        except Exception as exc:  # one bad query must not stop the campaign
+            log.exception("harvest failed for %s query %r", platform, query.query)
+            self.diagnostics[f"error:{type(exc).__name__}"] += 1
+            return []
 
-    @classmethod
-    def get_allowed_recency_years(cls, window_years: int = 2) -> List[int]:
-        """Dynamically compute allowed recency years [current_year, current_year - 1]."""
-        curr = datetime.date.today().year
-        return [curr - i for i in range(window_years)]
+    # ── Shared helpers ──
 
-    @classmethod
-    def get_recency_query_hint(cls, window_years: int = 2) -> str:
-        """Dynamically build query clause e.g. '(2026 OR 2025)' in 2026, '(2027 OR 2026)' in 2027."""
-        years = cls.get_allowed_recency_years(window_years)
-        return "(" + " OR ".join(str(y) for y in sorted(years, reverse=True)) + ")"
+    def _reject(self, code: str) -> None:
+        self.diagnostics[f"rejected:{code}"] += 1
 
-    def analyze_lead_context(self, content: str, pub_date: str) -> Dict[str, Any]:
-        """Analyze publish date, comment dates, and extract concrete user complaints for the 2-year window."""
-        curr_year = datetime.date.today().year
-        min_allowed_year = curr_year - 1  # Last 2 years rolling window: [curr_year - 1, curr_year]
+    def _search(self, query: str, limit: int) -> List[Dict[str, Any]]:
+        """Exa first, DuckDuckGo second. Returns [] and logs when both fail."""
+        try:
+            from agent_reach.channels.web import WebChannel
 
-        clean_date = (pub_date or "")[:10]
-        years_found = [int(y) for y in re.findall(r"\b(20\d\d)\b", f"{clean_date} {content}")]
-        latest_year = max(years_found) if years_found else None
-        pub_year = int(clean_date[:4]) if (clean_date and clean_date[:4].isdigit()) else None
+            results = WebChannel()._exa_search(query=query, limit=limit, timeout=12)
+            if results:
+                return results
+        except Exception as exc:
+            log.warning("Exa search failed (%s): %s", type(exc).__name__, str(exc)[:200])
+            self.diagnostics["search_error:exa"] += 1
 
-        if pub_year and pub_year >= min_allowed_year:
-            recency_tier = f"Recent Post ({pub_year})"
-            is_recent_or_active = True
-        elif latest_year and latest_year >= min_allowed_year:
-            recency_tier = f"Evergreen Thread with Active Recent Comments ({latest_year})"
-            is_recent_or_active = True
-        else:
-            recency_tier = f"Archived Thread ({pub_year or 'Older'})"
-            is_recent_or_active = False
+        results = self._duckduckgo(query, limit)
+        if not results:
+            self.diagnostics["search_empty"] += 1
+        return results
 
-        # Extract distinct user complaints and pain points
-        complaints = []
-        for line in content.splitlines():
-            l = line.strip()
-            low = l.lower()
-            if any(k in low for k in [
-                "missed deadline", "missing deadline", "can't focus", "cannot focus",
-                "overwhelm", "struggling", "hate", "too many clients", "paralyzed",
-                "burnout", "procrastinate", "disorganized", "too slow", "bloated",
-                "expensive", "behind on project", "stale", "drowning"
-            ]):
-                cleaned = l.lstrip(">*#- ").strip()
-                if len(cleaned) > 20 and cleaned not in complaints:
-                    complaints.append(cleaned[:180])
-                    if len(complaints) >= 4:
-                        break
+    def _duckduckgo(self, query: str, limit: int) -> List[Dict[str, Any]]:
+        try:
+            resp = self.session.post(
+                "https://html.duckduckgo.com/html/",
+                data={"q": query},
+                headers={"User-Agent": USER_AGENT},
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                self.diagnostics["search_error:duckduckgo"] += 1
+                return []
+            pattern = re.compile(
+                r'<h2 class="result__title">\s*<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>\s*</h2>'
+                r'.*?<a class="result__snippet"[^>]*>(.*?)</a>',
+                re.DOTALL,
+            )
+            items = []
+            for m in pattern.finditer(resp.text):
+                uddg = re.search(r"uddg=([^&]+)", m.group(1))
+                items.append({
+                    "title": _TAG_RE.sub("", m.group(2)).strip(),
+                    "url": urllib.parse.unquote(uddg.group(1)) if uddg else m.group(1),
+                    "text": _TAG_RE.sub("", m.group(3)).strip(),
+                    "published_at": None,
+                    "author": None,
+                })
+                if len(items) >= limit:
+                    break
+            return items
+        except requests.RequestException as exc:
+            log.warning("DuckDuckGo failed: %s", type(exc).__name__)
+            self.diagnostics["search_error:duckduckgo"] += 1
+            return []
 
-        # Extract commenter handles and advice/signals
-        commenters = re.findall(r"\*\*u/([A-Za-z0-9_-]+)\*\*", content)
-
-        return {
-            "pub_date": clean_date or "Unknown",
-            "pub_year": pub_year,
-            "min_allowed_year": min_allowed_year,
-            "current_year": curr_year,
-            "latest_activity_year": latest_year or pub_year,
-            "recency_tier": recency_tier,
-            "is_recent_or_active": is_recent_or_active,
-            "commenters_found": list(dict.fromkeys(commenters))[:5],
-            "extracted_complaints": complaints,
-        }
+    def _keep(self, item: DiscoveredItem, health: ThreadHealth) -> Optional[DiscoveredItem]:
+        item.thread_health = health.to_dict()
+        if not self.storage.save_discovered_item(item):
+            self._reject("duplicate")
+            return None
+        return item
 
     # ── Reddit ──
 
-    def search_reddit(
-        self,
-        query: str,
-        subreddit: Optional[str] = None,
-        limit: int = 5,
-    ) -> List[DiscoveredItem]:
-        """Search Reddit discussions, comments, and threads (via Exa index or direct API)."""
+    def search_reddit(self, query: str, subreddit: Optional[str] = None, limit: int = 5) -> List[DiscoveredItem]:
+        sub = subreddit.strip() if subreddit and _SUB_RE.match(subreddit.strip()) else None
+        scope = f"site:reddit.com/{sub}" if sub else "site:reddit.com"
+        results = self._search(f"{scope} {_clean_query(query)}", limit * 3)
+
+        candidates, seen = [], set()
+        for res in results:
+            url = res.get("url", "")
+            pid = reddit_post_id(url)
+            if not pid or "reddit.com" not in host_of(url) or pid in seen:
+                self._reject("not_reddit_post")
+                continue
+            seen.add(pid)
+            canon = canonical_url(url)
+            if self.storage.is_url_discovered(canon):
+                self._reject("duplicate")
+                continue
+            candidates.append((pid, canon, res))
+
+        metas = self.reddit_meta.fetch([c[0] for c in candidates]) if candidates else {}
+        if candidates and not metas:
+            self.diagnostics["reddit_meta_unavailable"] += 1
+
         items: List[DiscoveredItem] = []
+        for pid, canon, res in candidates:
+            data = metas.get(pid)
+            health = judge_reddit(data, published_at=res.get("published_at"))
+            if health.reject:
+                self._reject(health.reject)
+                continue
+            title = (data or {}).get("title") or re.split(r"\s+[:\-|]\s+(?:Reddit|r/)", res.get("title") or query)[0].strip()
+            content = (res.get("text") or "").strip() or (data or {}).get("selftext", "")
+            if is_promotional(title, content):
+                self._reject("promotional")
+                continue
+            created = (data or {}).get("created_utc")
+            published = (
+                datetime.datetime.fromtimestamp(float(created), tz=datetime.timezone.utc).strftime("%Y-%m-%d")
+                if created else (res.get("published_at") or "")[:10]
+            )
+            detected = (data or {}).get("subreddit")
+            item = DiscoveredItem(
+                url=canon,
+                platform="reddit",
+                community=f"r/{detected}" if detected else (sub or "reddit"),
+                author=(data or {}).get("author") or res.get("author") or "",
+                published_at=published,
+                title=title,
+                content=f"{title}\n\n{content}"[:6000],
+                raw_data={"source": "exa", "has_api_meta": bool(data)},
+            )
+            kept = self._keep(item, health)
+            if kept:
+                items.append(kept)
+            if len(items) >= limit:
+                break
 
-        # 1. Primary: Search Reddit via WebChannel Exa search (bypasses Reddit 403 API blocking & includes comments)
+        if not items and not results:
+            items = self._reddit_direct(query, sub, limit)
+        return items
+
+    def _reddit_direct(self, query: str, sub: Optional[str], limit: int) -> List[DiscoveredItem]:
+        """Fallback: Reddit's own search. Often blocked without OAuth."""
+        q = urllib.parse.quote(query)
+        if sub:
+            url = f"https://www.reddit.com/{sub}/search.json?q={q}&restrict_sr=1&sort=relevance&limit={limit * 3}&raw_json=1"
+        else:
+            url = f"https://www.reddit.com/search.json?q={q}&sort=relevance&limit={limit * 3}&raw_json=1"
         try:
-            from agent_reach.channels.web import WebChannel
-            web_ch = WebChannel()
-            sub_filter = f"site:reddit.com/{subreddit.strip('/')}" if (subreddit and subreddit.startswith("r/")) else "site:reddit.com"
-            clean_q = query.replace('"', "").replace("'", "")
-            allowed_years = self.get_allowed_recency_years(window_years=2)
-            has_explicit_year = any(str(yr) in clean_q for yr in allowed_years)
-            recency_hint = "" if has_explicit_year else self.get_recency_query_hint(window_years=2)
-            exa_query = f"{sub_filter} {clean_q} {recency_hint}".strip()
-            raw_results = self._search_web_resilient(query=exa_query, limit=limit * 2)
-            for res in raw_results:
-                url = res.get("url", "")
-                if not url or self.storage.is_url_discovered(url):
-                    continue
-                # Extract subreddit from URL if present
-                sub_match = re.search(r"reddit\.com/(r/[^/]+)", url)
-                detected_sub = sub_match.group(1) if sub_match else (subreddit or "r/reddit")
-                title = res.get("title", query)
-                if " : " in title:
-                    title = title.split(" : ")[0].strip()
-                elif " - Reddit" in title:
-                    title = title.replace(" - Reddit", "").strip()
+            resp = self.session.get(url, headers={"User-Agent": USER_AGENT}, timeout=10)
+            if resp.status_code != 200:
+                self.diagnostics[f"search_error:reddit_http_{resp.status_code}"] += 1
+                return []
+            children = resp.json().get("data", {}).get("children", [])
+        except (requests.RequestException, ValueError) as exc:
+            log.warning("Reddit direct search failed: %s", type(exc).__name__)
+            self.diagnostics["search_error:reddit"] += 1
+            return []
 
-                content = res.get("text", "").strip()
-                author = res.get("author") or "reddit_user"
-                pub_at = (res.get("published_at") or "")[:10] or datetime.date.today().isoformat()
-                context = self.analyze_lead_context(content, pub_at)
+        items: List[DiscoveredItem] = []
+        for child in children:
+            data = child.get("data", {})
+            canon = canonical_url(f"https://reddit.com{data.get('permalink', '')}")
+            if not data.get("id") or self.storage.is_url_discovered(canon):
+                continue
+            health = judge_reddit(data)
+            if health.reject:
+                self._reject(health.reject)
+                continue
+            title, body = data.get("title", ""), data.get("selftext", "")
+            if is_promotional(title, body):
+                self._reject("promotional")
+                continue
+            created = datetime.datetime.fromtimestamp(float(data["created_utc"]), tz=datetime.timezone.utc)
+            item = DiscoveredItem(
+                url=canon,
+                platform="reddit",
+                community=f"r/{data.get('subreddit', 'reddit')}",
+                author=data.get("author", ""),
+                published_at=created.strftime("%Y-%m-%d"),
+                title=title,
+                content=f"{title}\n\n{body}".strip()[:6000],
+                raw_data={"source": "reddit_search"},
+            )
+            kept = self._keep(item, health)
+            if kept:
+                items.append(kept)
+            if len(items) >= limit:
+                break
+        return items
 
-                # Strictly enforce 2-year window (post or comments within last 2 years)
-                if not context["is_recent_or_active"]:
-                    continue
+    # ── Hacker News (Algolia) ──
 
-                res["context_analysis"] = context
-
-                item = DiscoveredItem(
-                    url=url,
-                    platform="reddit",
-                    community=detected_sub,
-                    author=author,
-                    published_at=context["pub_date"],
-                    title=title,
-                    content=content,
-                    raw_data=res,
-                )
-                self.storage.save_discovered_item(item)
-                items.append(item)
-                if len(items) >= limit:
-                    break
-        except Exception:
-            pass
-
-        # 2. Secondary fallback: Direct Reddit JSON API
-        if not items:
-            headers = {"User-Agent": _USER_AGENT}
-            encoded_q = urllib.parse.quote(query)
-            if subreddit and subreddit.startswith("r/"):
-                sub_name = urllib.parse.quote(subreddit.removeprefix("r/"))
-                url = f"https://www.reddit.com/r/{sub_name}/search.json?q={encoded_q}&restrict_sr=1&sort=relevance&limit={limit}"
-            else:
-                url = f"https://www.reddit.com/search.json?q={encoded_q}&sort=relevance&limit={limit}"
-
+    def search_hackernews(self, query: str, limit: int = 5) -> List[DiscoveredItem]:
+        max_age = PLATFORM_MAX_AGE_DAYS["hackernews"]
+        since = int(time.time()) - max_age * 86400
+        items: List[DiscoveredItem] = []
+        for tag in ("ask_hn", "story"):
+            params = {
+                "query": _clean_query(query),
+                "tags": tag,
+                "numericFilters": f"created_at_i>{since}",
+                "hitsPerPage": limit * 3,
+            }
             try:
-                resp = requests.get(url, headers=headers, timeout=10)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    children = data.get("data", {}).get("children", [])
-                    for child in children:
-                        post_data = child.get("data", {})
-                        post_url = f"https://reddit.com{post_data.get('permalink', '')}"
+                resp = self.session.get(
+                    "https://hn.algolia.com/api/v1/search",
+                    params=params,
+                    headers={"User-Agent": USER_AGENT},
+                    timeout=10,
+                )
+                if resp.status_code != 200:
+                    self.diagnostics[f"search_error:hn_http_{resp.status_code}"] += 1
+                    continue
+                hits = resp.json().get("hits", [])
+            except (requests.RequestException, ValueError) as exc:
+                log.warning("HN search failed: %s", type(exc).__name__)
+                self.diagnostics["search_error:hn"] += 1
+                continue
 
-                        if self.storage.is_url_discovered(post_url):
-                            continue
-
-                        title = html.unescape(post_data.get("title", ""))
-                        selftext = html.unescape(post_data.get("selftext", ""))
-                        author = post_data.get("author", "[deleted]")
-                        sub = f"r/{post_data.get('subreddit', 'reddit')}"
-                        created_utc = post_data.get("created_utc", time.time())
-                        date_str = datetime.datetime.fromtimestamp(
-                            created_utc, tz=datetime.timezone.utc
-                        ).strftime("%Y-%m-%d")
-
-                        content = f"{title}\n\n{selftext}".strip()
-                        if len(content) < 30:
-                            continue
-
-                        item = DiscoveredItem(
-                            url=post_url,
-                            platform="reddit",
-                            community=sub,
-                            author=author,
-                            published_at=date_str,
-                            title=title,
-                            content=content,
-                            raw_data={"score": post_data.get("score", 0), "num_comments": post_data.get("num_comments", 0)},
-                        )
-                        self.storage.save_discovered_item(item)
-                        items.append(item)
-                        if len(items) >= limit:
-                            break
-            except Exception:
-                pass
-
-        # 3. Last-resort offline fallback
-        if not items:
-            items = self._fallback_reddit_items(query, subreddit, limit)
-
+            for hit in hits:
+                oid = hit.get("objectID")
+                title = hit.get("title") or ""
+                body = _strip_html(hit.get("story_text") or "")
+                if not oid or not title:
+                    continue
+                canon = f"https://news.ycombinator.com/item?id={oid}"
+                if self.storage.is_url_discovered(canon):
+                    self._reject("duplicate")
+                    continue
+                health = judge_hn(hit)
+                if not health.reject and tag == "story" and hit.get("url") and not body:
+                    health.reject = "link_post"   # a shared link, not a question
+                if health.reject:
+                    self._reject(health.reject)
+                    continue
+                if is_promotional(title, body):
+                    self._reject("promotional")
+                    continue
+                item = DiscoveredItem(
+                    url=canon,
+                    platform="hackernews",
+                    community="Hacker News",
+                    author=hit.get("author") or "",
+                    published_at=(hit.get("created_at") or "")[:10],
+                    title=title,
+                    content=f"{title}\n\n{body}".strip()[:6000],
+                    raw_data={"points": hit.get("points"), "tag": tag},
+                )
+                kept = self._keep(item, health)
+                if kept:
+                    items.append(kept)
+                if len(items) >= limit:
+                    return items
         return items
 
     # ── Quora ──
 
     def search_quora(self, query: str, limit: int = 5) -> List[DiscoveredItem]:
-        """Search Quora questions, answers, and discussions."""
+        results = self._search(f"site:quora.com {_clean_query(query)}", limit * 3)
         items: List[DiscoveredItem] = []
-        try:
-            from agent_reach.channels.web import WebChannel
-            web_ch = WebChannel()
-            clean_q = query.replace('"', "").replace("'", "")
-            allowed_years = self.get_allowed_recency_years(window_years=2)
-            has_explicit_year = any(str(yr) in clean_q for yr in allowed_years)
-            recency_hint = "" if has_explicit_year else self.get_recency_query_hint(window_years=2)
-            exa_query = f"site:quora.com {clean_q} {recency_hint}".strip()
-            raw_results = self._search_web_resilient(query=exa_query, limit=limit * 2)
-            for res in raw_results:
-                url = res.get("url", "")
-                if not url or self.storage.is_url_discovered(url):
-                    continue
-                title = res.get("title", query).replace(" - Quora", "").strip()
-                content = res.get("text", "").strip()
-                author = res.get("author") or "Quora User"
-                pub_at = (res.get("published_at") or "")[:10] or datetime.date.today().isoformat()
-                context = self.analyze_lead_context(content, pub_at)
-
-                if not context["is_recent_or_active"]:
-                    continue
-
-                res["context_analysis"] = context
-
-                item = DiscoveredItem(
-                    url=url,
-                    platform="quora",
-                    community="Quora",
-                    author=author,
-                    published_at=context["pub_date"],
-                    title=title,
-                    content=content,
-                    raw_data=res,
-                )
-                self.storage.save_discovered_item(item)
-                items.append(item)
-                if len(items) >= limit:
-                    break
-        except Exception:
-            pass
+        for res in results:
+            url = res.get("url", "")
+            if "quora.com" not in host_of(url) or _QUORA_SKIP.match(urllib.parse.urlsplit(url).path or "/"):
+                self._reject("not_quora_question")
+                continue
+            canon = canonical_url(url)
+            if self.storage.is_url_discovered(canon):
+                self._reject("duplicate")
+                continue
+            title = (res.get("title") or query).replace(" - Quora", "").strip()
+            content = (res.get("text") or "").strip()
+            if is_promotional(title, content):
+                self._reject("promotional")
+                continue
+            published = (res.get("published_at") or "")[:10]
+            health = ThreadHealth(verified=False, kind="discussion", age_days=age_in_days(published))
+            health.warnings.append("unverified_comment_state")
+            if not published:
+                health.warnings.append("no_date")
+            elif health.age_days is not None and health.age_days > PLATFORM_MAX_AGE_DAYS["quora"]:
+                self._reject("too_old")
+                continue
+            item = DiscoveredItem(
+                url=canon, platform="quora", community="Quora", author=res.get("author") or "",
+                published_at=published, title=title, content=f"{title}\n\n{content}"[:6000],
+                raw_data={"source": "exa"},
+            )
+            kept = self._keep(item, health)
+            if kept:
+                items.append(kept)
+            if len(items) >= limit:
+                break
         return items
 
-
-    def _search_web_resilient(self, query: str, limit: int = 5) -> list:
-        """Execute web search via Exa, gracefully falling back to DuckDuckGo when Exa is rate-limited (429) or offline."""
-        import urllib.request
-        import urllib.parse
-        import re
-
-        try:
-            from agent_reach.channels.web import WebChannel
-            web_ch = WebChannel()
-            res = web_ch._exa_search(query=query, limit=limit, timeout=10)
-            if res:
-                return res
-        except Exception:
-            pass
-
-        url = "https://html.duckduckgo.com/html/"
-        data = urllib.parse.urlencode({"q": query}).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=data,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-        )
-        items = []
-        try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                content = resp.read().decode("utf-8", errors="ignore")
-                pattern = re.compile(
-                    r'<h2 class="result__title">\s*<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>\s*</h2>'
-                    r'.*?<a class="result__snippet"[^>]*>(.*?)</a>',
-                    re.DOTALL,
-                )
-                for m in pattern.finditer(content):
-                    raw_url = m.group(1)
-                    uddg_m = re.search(r"uddg=([^&]+)", raw_url)
-                    final_url = urllib.parse.unquote(uddg_m.group(1)) if uddg_m else raw_url
-                    title = re.sub(r"<[^>]+>", "", m.group(2)).strip()
-                    snippet = re.sub(r"<[^>]+>", "", m.group(3)).strip()
-                    items.append({
-                        "title": title,
-                        "url": final_url,
-                        "text": snippet,
-                        "published_at": None,
-                        "author": None,
-                    })
-                    if len(items) >= limit:
-                        break
-        except Exception:
-            pass
-        return items
-
-    def discover_subreddits(self, niche_keywords: str, limit: int = 15) -> List[str]:
-        """Dynamically discover active subreddits for any niche without hardcoded placeholders."""
-        try:
-            from agent_reach.channels.web import WebChannel
-            web_ch = WebChannel()
-            recency = self.get_recency_query_hint(window_years=2)
-            clean_kw = niche_keywords.replace('"', "").replace("'", "")
-            query = f"site:reddit.com/r/ {recency} {clean_kw}".strip()
-            discovered = set()
-            results = self._search_web_resilient(query=query, limit=20)
-            for r in results:
-                m = re.search(r"reddit\.com/(r/[A-Za-z0-9_]+)", r.get("url", ""))
-                if m:
-                    sub = m.group(1)
-                    if sub.lower() not in ("r/all", "r/popular", "r/reddit", "r/askreddit", "r/iama"):
-                        discovered.add(sub)
-            return sorted(list(discovered))[:limit]
-        except Exception:
-            return []
-
-    # ── Twitter / X ──
+    # ── X / Twitter ──
 
     def search_twitter(self, query: str, limit: int = 5) -> List[DiscoveredItem]:
-        """Search verified Twitter / X tweets, vents, and discussion threads.
-        
-        Guarantees that every returned item is directly hosted on x.com,
-        is mathematically verified via Twitter Snowflake ID to fall within the active
-        rolling recency window, and points to the live tweet status URL.
-        """
+        """Weak source. Thread indexers mostly list creators' threads, not customers asking for help."""
+        clean = _clean_query(query)
+        results: List[Dict[str, Any]] = []
+        for site in _TWITTER_INDEXERS:
+            results.extend(self._search(f"site:{site} {clean}", limit * 2))
+        max_age = PLATFORM_MAX_AGE_DAYS["twitter"]
         items: List[DiscoveredItem] = []
-        try:
-            from agent_reach.channels.web import WebChannel
-            import urllib.request
-            web_ch = WebChannel()
-            clean_q = query.replace('"', "").replace("'", "")
-            allowed_years = self.get_allowed_recency_years(window_years=2)
-            has_explicit_year = any(str(yr) in clean_q for yr in allowed_years)
-            recency_hint = "" if has_explicit_year else self.get_recency_query_hint(window_years=2)
-
-            # Query tweet indexers to retrieve tweet IDs and content without login walls
-            target_queries = [
-                f"site:threadreaderapp.com {clean_q} {recency_hint}",
-                f"site:en.rattibha.com {clean_q} {recency_hint}",
-                f"site:threadreaderapp.com {clean_q}",
-                f"site:en.rattibha.com {clean_q}",
-            ]
-
-            raw_results = []
-            for tq in target_queries:
-                try:
-                    res = self._search_web_resilient(query=tq, limit=limit * 2)
-                    raw_results.extend(res)
-                    if len(raw_results) >= limit * 3:
-                        break
-                except Exception:
-                    continue
-
-            seen_tids = set()
-            for res in raw_results:
-                raw_url = res.get("url", "")
-                if not raw_url:
-                    continue
-
-                # Must contain a tweet snowflake ID
-                tid_match = re.search(r"/(?:thread|status)/(\d+)", raw_url)
-                if not tid_match:
-                    continue
-                tid = int(tid_match.group(1))
-                if tid in seen_tids:
-                    continue
-                seen_tids.add(tid)
-
-                # MATHEMATICALLY VERIFY RECENCY VIA TWITTER SNOWFLAKE ID:
-                # Twitter Snowflake epoch is 1288834974657 ms (2010-11-04 01:42:54 UTC)
-                try:
-                    ms = (tid >> 22) + 1288834974657
-                    tweet_dt = datetime.datetime.fromtimestamp(ms / 1000, tz=datetime.timezone.utc)
-                except Exception:
-                    continue
-
-                if tweet_dt.year not in allowed_years:
-                    # Discard tweets outside the active rolling window
-                    continue
-
-                # Discard promotional articles, listicles, and marketing threads (sellers pitching products)
-                combined_text = f"{res.get('title', '')} {res.get('text', '')}".lower()
-                promo_patterns = [
-                    r"\b\d+\s+(?:free\s+)?(?:tools|websites|apps|tips|ways|alternatives|resources|secrets|prompts)\b",
-                    r"\b(?:here are|here is)\s+\d+\b",
-                    r"\b(?:bookmark this|cheat sheet|steal my|read this thread|save this post|mini-thread)\b",
-                    r"\b(?:how i made|how to make \$\d+|how to become so creative)\b",
-                    r"\b(?:sign up|my newsletter|link in bio|my course|subscribe)\b",
-                    r"\b(?:stop saying|don't say)\b",
-                ]
-                if any(re.search(p, combined_text) for p in promo_patterns):
-                    continue
-
-                # RESOLVE TO CANONICAL DIRECT X.COM URL
-                canonical_x_url = f"https://x.com/i/status/{tid}"
-                author_handle = "x_user"
-
-                # Check if handle is in title or snippet
-                handle_match = re.search(r"@([A-Za-z0-9_]{1,15})", f"{res.get('title', '')} {res.get('text', '')}")
-                if handle_match:
-                    author_handle = handle_match.group(1)
-
-                try:
-                    class HeadRequest(urllib.request.Request):
-                        def get_method(self):
-                            return "HEAD"
-
-                    req = HeadRequest(
-                        f"https://x.com/i/status/{tid}",
-                        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-                    )
-                    with urllib.request.urlopen(req, timeout=3.0) as resp:
-                        resolved_url = resp.url
-                        if "x.com" in resolved_url or "twitter.com" in resolved_url:
-                            canonical_x_url = resolved_url
-                            m_user = re.search(r"[x|twitter]\.com/([A-Za-z0-9_]+)/status/", resolved_url)
-                            if m_user:
-                                author_handle = m_user.group(1)
-                except Exception:
-                    if author_handle != "x_user":
-                        canonical_x_url = f"https://x.com/{author_handle}/status/{tid}"
-
-                if self.storage.is_url_discovered(canonical_x_url):
-                    continue
-
-                # Clean title to remove third-party wrapper text
-                raw_title = res.get("title", "").strip()
-                cleaned_title = re.sub(r"^Thread by @\w+[:\s\-]*", "", raw_title, flags=re.IGNORECASE).strip()
-                cleaned_title = re.sub(r"\s*[–\-\|]\s*(?:Thread Reader App|Rattibha).*", "", cleaned_title, flags=re.IGNORECASE).strip()
-                cleaned_title = re.sub(r"^(?:Thread by|Thread on|Post by)[:\s\-]*", "", cleaned_title, flags=re.IGNORECASE).strip()
-                cleaned_title = re.sub(r"\s+on Thread Reader App$", "", cleaned_title, flags=re.IGNORECASE).strip()
-                if len(cleaned_title) < 10:
-                    first_line = (res.get("text") or "").splitlines()[0] if res.get("text") else ""
-                    cleaned_title = first_line[:100] if first_line else f"Post by @{author_handle} on X"
-
-                content = res.get("text", "").strip()
-                pub_at = tweet_dt.strftime("%Y-%m-%d")
-
-                context = self.analyze_lead_context(content, pub_at)
-                res["context_analysis"] = context
-
-                item = DiscoveredItem(
-                    url=canonical_x_url,
-                    platform="twitter",
-                    community="X / Twitter",
-                    author=f"@{author_handle}",
-                    published_at=pub_at,
-                    title=cleaned_title,
-                    content=content,
-                    raw_data=res,
-                )
-                self.storage.save_discovered_item(item)
-                items.append(item)
-                if len(items) >= limit:
-                    break
-        except Exception:
-            pass
+        seen = set()
+        for res in results:
+            m = re.search(r"/(?:thread|status)/(\d+)", res.get("url", ""))
+            if not m or m.group(1) in seen:
+                continue
+            tid = int(m.group(1))
+            seen.add(m.group(1))
+            posted = datetime.datetime.fromtimestamp(
+                ((tid >> 22) + _SNOWFLAKE_EPOCH_MS) / 1000, tz=datetime.timezone.utc
+            )
+            age = (datetime.datetime.now(datetime.timezone.utc) - posted).days
+            if age > max_age:
+                self._reject("too_old")
+                continue
+            title = re.sub(r"^(?:Thread by|Thread on|Post by)\s*@?\w*[:\s-]*", "", res.get("title") or "", flags=re.I)
+            title = re.sub(r"\s*[-|]\s*(?:Thread Reader App|Rattibha).*$", "", title, flags=re.I).strip()
+            content = (res.get("text") or "").strip()
+            if is_promotional(title, content):
+                self._reject("promotional")
+                continue
+            canon = f"https://x.com/i/status/{tid}"
+            if self.storage.is_url_discovered(canon):
+                self._reject("duplicate")
+                continue
+            handle = re.search(r"@([A-Za-z0-9_]{1,15})", f"{res.get('title', '')} {content}")
+            health = ThreadHealth(verified=False, commentable=True, age_days=age, warnings=["indexer_source"])
+            item = DiscoveredItem(
+                url=canon, platform="twitter", community="X / Twitter",
+                author=f"@{handle.group(1)}" if handle else "",
+                published_at=posted.strftime("%Y-%m-%d"),
+                title=title or content[:100], content=f"{title}\n\n{content}"[:6000],
+                raw_data={"source": "indexer"},
+            )
+            kept = self._keep(item, health)
+            if kept:
+                items.append(kept)
+            if len(items) >= limit:
+                break
         return items
 
-    # ── Web (Exa / Fallback) ──
+    # ── Open web: discussions only ──
 
     def search_web(self, query: str, limit: int = 5) -> List[DiscoveredItem]:
+        results = self._search(_clean_query(query), limit * 4)
         items: List[DiscoveredItem] = []
-        try:
-            from agent_reach.channels.web import WebChannel
-            web_ch = WebChannel()
-            clean_q = query.replace('"', "").replace("'", "")
-            allowed_years = self.get_allowed_recency_years(window_years=2)
-            has_explicit_year = any(str(yr) in clean_q for yr in allowed_years)
-            recency_hint = "" if has_explicit_year else self.get_recency_query_hint(window_years=2)
-            exa_query = f"{clean_q} {recency_hint}".strip()
-            results = web_ch._exa_search(query=exa_query, limit=limit * 2, timeout=12)
-            for res in results:
-                url = res.get("url", "")
-                if url and not self.storage.is_url_discovered(url):
-                    content = res.get("text", "")[:3000].strip()
-                    pub_at = (res.get("published_at") or "")[:10] or datetime.date.today().isoformat()
-                    context = self.analyze_lead_context(content, pub_at)
-
-                    if not context["is_recent_or_active"]:
-                        continue
-
-                    res["context_analysis"] = context
-
-                    item = DiscoveredItem(
-                        url=url,
-                        platform="web",
-                        community=urllib.parse.urlparse(url).netloc,
-                        author=res.get("author", "Web Author") or "Web Author",
-                        published_at=context["pub_date"],
-                        title=res.get("title", query),
-                        content=content,
-                        raw_data=res,
-                    )
-                    self.storage.save_discovered_item(item)
-                    items.append(item)
-                    if len(items) >= limit:
-                        break
-        except Exception:
-            pass
-
-        if not items:
-            items = self._fallback_web_items(query, limit)
-
+        for res in results:
+            url = res.get("url", "")
+            if not url:
+                continue
+            title = res.get("title") or ""
+            health = classify_web_result(url, title, self.exclude_hosts)
+            published = (res.get("published_at") or "")[:10]
+            health.age_days = age_in_days(published)
+            if not health.reject:
+                if not published:
+                    health.warnings.append("no_date")
+                elif health.age_days is not None and health.age_days > PLATFORM_MAX_AGE_DAYS["web"]:
+                    health.reject = "too_old"
+            if health.reject:
+                self._reject(health.reject)
+                continue
+            canon = canonical_url(url)
+            if self.storage.is_url_discovered(canon):
+                self._reject("duplicate")
+                continue
+            content = (res.get("text") or "").strip()
+            if is_promotional(title, content):
+                self._reject("promotional")
+                continue
+            item = DiscoveredItem(
+                url=canon, platform="web", community=host_of(url),
+                author=res.get("author") or "", published_at=published,
+                title=title, content=f"{title}\n\n{content}"[:6000], raw_data={"source": "exa"},
+            )
+            kept = self._keep(item, health)
+            if kept:
+                items.append(kept)
+            if len(items) >= limit:
+                break
         return items
 
-    # ── GitHub ──
+    # ── GitHub issues ──
 
     def search_github(self, query: str, limit: int = 5) -> List[DiscoveredItem]:
-        items: List[DiscoveredItem] = []
-        headers = {"User-Agent": _USER_AGENT, "Accept": "application/vnd.github.v3+json"}
-        clean_q = query.replace("is:issue", "").replace("is:open", "").strip()
-        encoded = urllib.parse.quote(f"is:issue is:open {clean_q}")
-        url = f"https://api.github.com/search/issues?q={encoded}&per_page={limit}"
+        import os
 
+        since = (datetime.date.today() - datetime.timedelta(days=PLATFORM_MAX_AGE_DAYS["github"])).isoformat()
+        clean = re.sub(r"\b(is|state|created):\S+", "", query).replace('"', "").strip()
+        q = f"{clean} is:issue is:open archived:false created:>={since}"
+        headers = {"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"}
+        token = os.getenv("GITHUB_TOKEN")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         try:
-            resp = requests.get(url, headers=headers, timeout=10)
-            if resp.status_code == 200:
-                data = resp.json()
-                for issue in data.get("items", []):
-                    issue_url = issue.get("html_url", "")
-                    if self.storage.is_url_discovered(issue_url):
-                        continue
-                    item = DiscoveredItem(
-                        url=issue_url,
-                        platform="github",
-                        community=issue.get("repository_url", "").replace("https://api.github.com/repos/", ""),
-                        author=issue.get("user", {}).get("login", ""),
-                        published_at=issue.get("created_at", "")[:10],
-                        title=issue.get("title", ""),
-                        content=f"{issue.get('title', '')}\n\n{issue.get('body', '')}".strip()[:3000],
-                        raw_data={"comments": issue.get("comments", 0), "state": issue.get("state", "open")},
-                    )
-                    self.storage.save_discovered_item(item)
-                    items.append(item)
-                    if len(items) >= limit:
-                        break
-        except Exception:
-            pass
+            resp = self.session.get(
+                "https://api.github.com/search/issues",
+                params={"q": q, "per_page": limit * 3, "sort": "updated"},
+                headers=headers,
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                self.diagnostics[f"search_error:github_http_{resp.status_code}"] += 1
+                return []
+            issues = resp.json().get("items", [])
+        except (requests.RequestException, ValueError) as exc:
+            log.warning("GitHub search failed: %s", type(exc).__name__)
+            self.diagnostics["search_error:github"] += 1
+            return []
 
-        if not items:
-            items = self._fallback_github_items(query, limit)
-
+        items: List[DiscoveredItem] = []
+        for issue in issues:
+            canon = canonical_url(issue.get("html_url", ""))
+            if not canon or self.storage.is_url_discovered(canon):
+                self._reject("duplicate")
+                continue
+            health = judge_github(issue)
+            if health.reject:
+                self._reject(health.reject)
+                continue
+            title, body = issue.get("title", ""), issue.get("body") or ""
+            if is_promotional(title, body):
+                self._reject("promotional")
+                continue
+            item = DiscoveredItem(
+                url=canon, platform="github",
+                community=issue.get("repository_url", "").replace("https://api.github.com/repos/", ""),
+                author=(issue.get("user") or {}).get("login", ""),
+                published_at=(issue.get("created_at") or "")[:10],
+                title=title, content=f"{title}\n\n{body}".strip()[:6000],
+                raw_data={"comments": issue.get("comments", 0)},
+            )
+            kept = self._keep(item, health)
+            if kept:
+                items.append(kept)
+            if len(items) >= limit:
+                break
         return items
-
-    # ── Deterministic Fallback Generators for Testing & Offline Scenarios ──
-
-    def _fallback_reddit_items(self, query: str, subreddit: Optional[str], limit: int) -> List[DiscoveredItem]:
-        sub = subreddit or "r/startups"
-        clean_q = query.replace('"', "").replace("'", "")
-        items = [
-            DiscoveredItem(
-                url=f"https://reddit.com/{sub}/comments/test01/struggling_with_triage",
-                platform="reddit",
-                community=sub,
-                author="dev_lead_sarah",
-                published_at=datetime.date.today().isoformat(),
-                title=f"Anyone else struggling with {clean_q}?",
-                content=f"We are struggling with {clean_q}. I hate having to spend hours every week on manual work. Does anyone know a tool that automates this or can recommend a better workflow?",
-                raw_data={"score": 42, "num_comments": 19},
-            ),
-            DiscoveredItem(
-                url=f"https://reddit.com/{sub}/comments/test02/looking_for_alternative",
-                platform="reddit",
-                community=sub,
-                author="alex_product_mgr",
-                published_at=datetime.date.today().isoformat(),
-                title=f"Looking for an alternative tool to solve {clean_q}",
-                content=f"Existing tools are way too expensive and clunky for us. We need a lightweight dashboard that automates {clean_q}. Willing to pay for a tool that actually works.",
-                raw_data={"score": 67, "num_comments": 31},
-            ),
-        ]
-        valid_items = []
-        for it in items[:limit]:
-            if not self.storage.is_url_discovered(it.url):
-                self.storage.save_discovered_item(it)
-                valid_items.append(it)
-        return valid_items
-
-    def _fallback_web_items(self, query: str, limit: int) -> List[DiscoveredItem]:
-        url = "https://news.ycombinator.com/item?id=3819201"
-        if self.storage.is_url_discovered(url):
-            return []
-        clean_q = query.replace('"', "").replace("'", "")
-        item = DiscoveredItem(
-            url=url,
-            platform="web",
-            community="Hacker News",
-            author="techno_founder",
-            published_at=datetime.date.today().isoformat(),
-            title=f"Ask HN: How do you handle {clean_q} at scale?",
-            content=f"We have been dealing with {clean_q}. What tools or automated workflows do you recommend for this?",
-            raw_data={},
-        )
-        self.storage.save_discovered_item(item)
-        return [item]
-
-    def _fallback_github_items(self, query: str, limit: int) -> List[DiscoveredItem]:
-        url = "https://github.com/facebook/react/issues/99999"
-        if self.storage.is_url_discovered(url):
-            return []
-        clean_q = query.replace('"', "").replace("'", "")
-        item = DiscoveredItem(
-            url=url,
-            platform="github",
-            community="github-community",
-            author="contributor_dan",
-            published_at=datetime.date.today().isoformat(),
-            title=f"Feature Request: Automated solution for {clean_q}",
-            content=f"Looking for automated tool to handle {clean_q}.",
-            raw_data={"comments": 8, "state": "open"},
-        )
-        self.storage.save_discovered_item(item)
-        return [item]

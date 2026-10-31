@@ -57,8 +57,8 @@ class SearchQuery(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     query: str
     intent_type: str = "frustration"  # frustration, alternative, recommendation, cost, tool_request
-    platform: str = "reddit"  # reddit, web, github, twitter, quora
-    target_community: Optional[str] = None  # e.g. "r/startups" or "owner/repo"
+    platform: str = "reddit"  # reddit, hackernews, web, github, twitter, quora
+    target_community: Optional[str] = None  # e.g. "r/startups"
     rationale: str = ""
 
 
@@ -73,6 +73,8 @@ class DiscoveredItem(BaseModel):
     title: str = ""
     content: str = ""
     raw_data: Dict[str, Any] = Field(default_factory=dict)
+    # Reply opportunity facts from thread_check: comments, age, commentable, warnings.
+    thread_health: Dict[str, Any] = Field(default_factory=dict)
     created_at: float = Field(default_factory=time.time)
 
 
@@ -119,6 +121,9 @@ class LeadQualification(BaseModel):
     score_breakdown: ScoreBreakdown
     classification: LeadClassification = "relevant_potential"
     confidence: float = Field(ge=0.0, le=1.0, default=0.85)
+    # "llm" when a model judged the thread, "heuristic" when only keyword rules ran.
+    judged_by: Literal["llm", "heuristic"] = "heuristic"
+    thread_health: Dict[str, Any] = Field(default_factory=dict)
     created_at: float = Field(default_factory=time.time)
 
 
@@ -150,10 +155,9 @@ class PostingSettings(BaseModel):
             "r/startups",
             "r/SaaS",
             "r/Entrepreneur",
-            "r/programming",
+            "r/smallbusiness",
             "r/devops",
             "r/webdev",
-            "r/softwaredevelopment",
         ]
     )
     emergency_stop: bool = False
@@ -170,8 +174,10 @@ class Campaign(BaseModel):
     name: str = "Default Campaign"
     business_profile_id: str = ""
     status: Literal["idle", "running", "completed", "failed", "cancelled"] = "idle"
-    selected_platforms: List[str] = Field(default_factory=lambda: ["reddit", "web"])
+    selected_platforms: List[str] = Field(default_factory=lambda: ["reddit", "hackernews", "web"])
     queries: List[SearchQuery] = Field(default_factory=list)
+    # Why threads were dropped, e.g. {"archived": 12, "not_discussion": 7}.
+    diagnostics: Dict[str, int] = Field(default_factory=dict)
     total_found: int = 0
     total_qualified: int = 0
     high_potential_count: int = 0

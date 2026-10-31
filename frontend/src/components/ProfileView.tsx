@@ -40,9 +40,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
     try {
       const extracted = await api.extractFromUrl(urlInput.trim());
       onProfileUpdated(extracted);
-      setFeedback('Profile extracted from website. Review the facts before confirming.');
+      setFeedback('Profile extracted from website. Review the facts below before confirming.');
     } catch (err: any) {
-      setFeedback(`Extraction failed: ${err.message}`);
+      setFeedback(err instanceof Error ? err.message : 'Website extraction failed. Please check the URL.');
     } finally {
       setLoading(false);
     }
@@ -55,9 +55,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
     try {
       const extracted = await api.extractFromManual(nameInput.trim(), descInput.trim());
       onProfileUpdated(extracted);
-      setFeedback('Profile synthesized from description. Review the facts before confirming.');
+      setFeedback('Profile synthesized from description. Review the facts below before confirming.');
     } catch (err: any) {
-      setFeedback(`Analysis failed: ${err.message}`);
+      setFeedback(err instanceof Error ? err.message : 'Analysis failed. Please check your product description.');
     } finally {
       setLoading(false);
     }
@@ -68,9 +68,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
     try {
       const updated = await api.updateProfile(formData as BusinessProfile);
       onProfileUpdated(updated);
-      setFeedback('Business profile saved.');
+      setFeedback('Business profile saved successfully.');
     } catch (err: any) {
-      setFeedback(`Save failed: ${err.message}`);
+      setFeedback(err instanceof Error ? err.message : 'Save failed. Please try again.');
     }
   };
 
@@ -80,7 +80,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
       onProfileUpdated(confirmed);
       setFeedback('Business profile confirmed. You can now launch discovery campaigns.');
     } catch (err: any) {
-      setFeedback(`Confirmation failed: ${err.message}`);
+      setFeedback(err instanceof Error ? err.message : 'Confirmation failed. Please try again.');
     }
   };
 

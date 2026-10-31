@@ -73,11 +73,16 @@ def cmd_discovery(args: Sequence[str]) -> int:
         parser = argparse.ArgumentParser(prog="agent-reach discovery search")
         parser.add_argument("--max", type=int, default=10, help="Max leads to qualify")
         parser.add_argument("--name", default="CLI Campaign", help="Campaign name")
+        parser.add_argument(
+            "--platforms", default="reddit,hackernews,web",
+            help="Comma list: reddit, hackernews, web, quora, twitter, github",
+        )
         ns = parser.parse_args(list(rest))
 
         try:
             campaign = orchestrator.run_campaign_sync(
                 campaign_name=ns.name,
+                platforms=[p.strip() for p in ns.platforms.split(",") if p.strip()],
                 max_leads=ns.max,
                 progress_callback=lambda msg, pct: sys.stderr.write(f"[{pct}%] {msg}\n"),
             )
@@ -90,7 +95,7 @@ def cmd_discovery(args: Sequence[str]) -> int:
     elif sub == "leads":
         parser = argparse.ArgumentParser(prog="agent-reach discovery leads")
         parser.add_argument("--min-score", type=int, default=50, help="Minimum score threshold (0-100)")
-        parser.add_argument("--platform", help="Filter by platform (reddit, web, github, twitter, quora)")
+        parser.add_argument("--platform", help="Filter by platform (reddit, hackernews, web, github, twitter, quora)")
         ns = parser.parse_args(list(rest))
 
         leads = storage.list_leads(min_score=ns.min_score, platform=ns.platform)

@@ -159,9 +159,19 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                   </div>
 
                   <div className="priority-copy">
-                    <div className="priority-meta">
+                    <div className="priority-meta" style={{ flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
                       <span className="badge badge-high">{classificationLabel(lead.classification)}</span>
                       <span>{lead.platform} · {lead.community}</span>
+                      {lead.judged_by === 'llm' && (
+                        <span className="badge badge-low" style={{ fontSize: '10px' }}>
+                          AI Judged
+                        </span>
+                      )}
+                      {lead.thread_health?.commentable === false && (
+                        <span className="badge badge-danger" style={{ fontSize: '10px' }}>
+                          Locked
+                        </span>
+                      )}
                     </div>
                     <h3>{lead.title}</h3>
                     <p>{lead.customer_problem}</p>
@@ -246,12 +256,19 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         </div>
 
         <div className="coverage-grid">
-          {['reddit', 'twitter', 'web', 'github'].map((platform) => {
-            const count = leads.filter((lead) => lead.platform === platform).length;
+          {[
+            { id: 'reddit', label: 'Reddit' },
+            { id: 'hackernews', label: 'Hacker News' },
+            { id: 'web', label: 'Public Web' },
+            { id: 'quora', label: 'Quora' },
+            { id: 'github', label: 'GitHub' },
+            { id: 'twitter', label: 'Twitter / X' },
+          ].map((item) => {
+            const count = leads.filter((lead) => lead.platform === item.id).length;
             const pct = leads.length > 0 ? (count / leads.length) * 100 : 0;
             return (
-              <div className="coverage-item" key={platform}>
-                <span className="coverage-name">{platform}</span>
+              <div className="coverage-item" key={item.id}>
+                <span className="coverage-name">{item.label}</span>
                 <strong>{count}</strong>
                 <span className="coverage-bar">
                   <span style={{ width: `${Math.min(100, count ? Math.max(8, pct) : 0)}%` }} />

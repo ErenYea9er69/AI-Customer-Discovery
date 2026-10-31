@@ -1,27 +1,43 @@
-import React, { useState, useEffect } from 'react';
-import { Lightbulb } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Lightbulb, AlertTriangle } from 'lucide-react';
 import type { AnalyticsSummary } from '../types';
 import { api } from '../api';
 
 export const AnalyticsView: React.FC = () => {
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const loadAnalytics = async () => {
+  const loadAnalytics = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const data = await api.getAnalytics();
       setAnalytics(data);
     } catch (e) {
-      console.error(e);
+      setError(e instanceof Error ? e.message : 'Could not load customer analytics.');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void loadAnalytics();
-  }, []);
+  }, [loadAnalytics]);
+
+  if (error) {
+    return (
+      <div className="page-shell">
+        <div className="notice notice-error" role="alert" style={{ marginTop: 'var(--sp-6)' }}>
+          <AlertTriangle size={16} />
+          <span>{error}</span>
+          <button className="btn btn-secondary btn-sm" onClick={() => void loadAnalytics()}>
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading || !analytics) {
     return (

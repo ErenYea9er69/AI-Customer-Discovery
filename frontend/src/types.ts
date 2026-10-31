@@ -51,9 +51,10 @@ export interface Campaign {
   id: string;
   name: string;
   business_profile_id: string;
-  status: 'idle' | 'running' | 'completed' | 'failed';
+  status: 'idle' | 'running' | 'completed' | 'failed' | 'cancelled';
   selected_platforms: string[];
   queries: SearchQuery[];
+  diagnostics?: Record<string, number>;
   total_found: number;
   total_qualified: number;
   high_potential_count: number;
@@ -80,6 +81,17 @@ export type LeadClassification =
   | 'competitor_intel'
   | 'irrelevant';
 
+export interface ThreadHealth {
+  verified?: boolean;
+  commentable?: boolean | null;
+  num_comments?: number | null;
+  score?: number | null;
+  age_days?: number | null;
+  kind?: string;
+  warnings?: string[];
+  crowded?: boolean;
+}
+
 export interface LeadQualification {
   id: string;
   discovered_item_id: string;
@@ -102,6 +114,8 @@ export interface LeadQualification {
   score_breakdown: ScoreBreakdown;
   classification: LeadClassification;
   confidence: number;
+  judged_by?: 'llm' | 'heuristic';
+  thread_health?: ThreadHealth;
   created_at: number;
 }
 
@@ -118,6 +132,8 @@ export interface GeneratedReply {
   target_url: string;
   affiliation_disclosure: string;
   error_message?: string;
+  created_at?: number;
+  updated_at?: number;
 }
 
 export interface PostingSettings {
@@ -131,6 +147,28 @@ export interface PostingSettings {
   reddit_username?: string;
   reddit_password?: string;
   github_token?: string;
+  has_reddit_password?: boolean;
+  has_reddit_client_secret?: boolean;
+  has_github_token?: boolean;
+}
+
+export interface LLMSettings {
+  provider: string;
+  model: string;
+  api_key?: string;
+  has_api_key?: boolean;
+  configured?: boolean;
+}
+
+export interface SettingsPayload {
+  posting_settings: PostingSettings;
+  llm_settings: LLMSettings;
+}
+
+export interface PlatformInfo {
+  platforms: string[];
+  default: string[];
+  weak: string[];
 }
 
 export interface AnalyticsSummary {
@@ -144,4 +182,3 @@ export interface AnalyticsSummary {
   platform_distribution: Record<string, number>;
   recommendations: { type: string; title: string; description: string }[];
 }
-

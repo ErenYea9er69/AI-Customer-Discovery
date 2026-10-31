@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -7,6 +7,11 @@ import {
   MessageSquare,
   Search,
   X,
+  Lock,
+  MessageCircle,
+  Sparkles,
+  Bot,
+  AlertTriangle,
 } from 'lucide-react';
 import type { LeadQualification } from '../types';
 import { api } from '../api';
@@ -17,6 +22,15 @@ interface LeadsViewProps {
 }
 
 const PAGE_SIZE = 25;
+
+const PLATFORM_LABELS: Record<string, string> = {
+  reddit: 'Reddit',
+  hackernews: 'Hacker News',
+  web: 'Public Web',
+  quora: 'Quora',
+  github: 'GitHub Issues',
+  twitter: 'Twitter / X',
+};
 
 const scoreFilter = (value: string) =>
   value === 'high'
@@ -40,36 +54,29 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setLeads(initialLeads);
-  }, [initialLeads]);
+  const loadLeads = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await api.listLeads({
+        ...scoreFilter(filterScore),
+        platform: filterPlatform === 'all' ? undefined : filterPlatform,
+        buying_intent: filterIntent === 'all' ? undefined : filterIntent,
+        query: searchQuery.trim() || undefined,
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
+      });
+      setLeads(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load qualified leads.');
+    } finally {
+      setLoading(false);
+    }
+  }, [filterScore, filterPlatform, filterIntent, searchQuery, page]);
 
   useEffect(() => {
-    let active = true;
-    const load = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const data = await api.listLeads({
-          ...scoreFilter(filterScore),
-          platform: filterPlatform === 'all' ? undefined : filterPlatform,
-          buying_intent: filterIntent === 'all' ? undefined : filterIntent,
-          query: searchQuery.trim() || undefined,
-          limit: PAGE_SIZE,
-          offset: page * PAGE_SIZE,
-        });
-        if (active) setLeads(data);
-      } catch (e) {
-        if (active) setError(e instanceof Error ? e.message : 'Could not load leads.');
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-    void load();
-    return () => {
-      active = false;
-    };
-  }, [filterScore, filterPlatform, filterIntent, searchQuery, page]);
+    void loadLeads();
+  }, [loadLeads]);
 
   const resetPage = (setter: (value: string) => void, value: string) => {
     setter(value);
@@ -82,7 +89,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
         <div>
           <h1>Qualified Customer Discussions</h1>
           <p>
-            Inspect customer evidence, review multi-dimensional qualification scores, and prepare high-value replies.
+            Inspect customer evidence quotes, examine thread activity and reply opportunities, and prepare high-value responses.
           </p>
         </div>
         <div className="queue-summary">
@@ -129,9 +136,11 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
         >
           <option value="all">All Sources</option>
           <option value="reddit">Reddit</option>
-          <option value="twitter">Twitter / X</option>
+          <option value="hackernews">Hacker News</option>
           <option value="web">Public Web</option>
+          <option value="quora">Quora</option>
           <option value="github">GitHub</option>
+          <option value="twitter">Twitter / X</option>
         </select>
 
         <select
@@ -150,7 +159,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
       {error && (
         <div className="notice notice-error" role="alert">
           <span>{error}</span>
-          <button className="btn btn-secondary btn-sm" onClick={() => setPage(page)}>
+          <button className="btn btn-secondary btn-sm" onClick={() => void loadLeads()}>
             Retry loading
           </button>
         </div>
@@ -164,7 +173,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
             <span>Page {page + 1} · Ranked by pain alignment</span>
           </div>
           <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
-            Select any item to inspect qualification scoring
+            Select any item to inspect qualification scoring and thread health
           </span>
         </div>
 
@@ -180,69 +189,118 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
           </div>
         ) : (
           <div className="lead-list">
-            {leads.map((lead) => (
-              <div
-                className="lead-row"
-                key={lead.id}
-                onClick={() => setSelectedLead(lead)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setSelectedLead(lead);
-                  }
-                }}
-              >
+            {leads.map((lead) => {
+              const th = lead.thread_health;
+              const isLocked = th?.commentable === false;
+              const isCrowded = th?.crowded === true;
+
+              return (
                 <div
-                  className={`score-badge ${
-                    lead.score >= 75
-                      ? 'score-badge-high'
-                      : lead.score >= 50
-                      ? 'score-badge-mid'
-                      : 'score-badge-low'
-                  }`}
+                  className="lead-row"
+                  key={lead.id}
+                  onClick={() => setSelectedLead(lead)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedLead(lead);
+                    }
+                  }}
                 >
-                  <strong className="tabular">{lead.score}</strong>
-                  <span>/100</span>
-                </div>
-
-                <div className="lead-main">
-                  <div className="lead-meta">
-                    <span className="badge badge-low">{lead.platform}</span>
-                    <span style={{ fontWeight: 600 }}>{lead.community}</span>
-                    <span>·</span>
-                    <span>{lead.published_at || 'Recent'}</span>
-                    {lead.competitor_mentioned && (
-                      <span className="badge badge-amber">vs {lead.competitor_mentioned}</span>
-                    )}
+                  <div
+                    className={`score-badge ${
+                      lead.score >= 75
+                        ? 'score-badge-high'
+                        : lead.score >= 50
+                        ? 'score-badge-mid'
+                        : 'score-badge-low'
+                    }`}
+                  >
+                    <strong className="tabular">{lead.score}</strong>
+                    <span>/100</span>
                   </div>
-                  <h3>{lead.title}</h3>
-                  <p>
-                    <strong>{lead.customer_problem}</strong>
-                  </p>
-                  <div className="evidence-line">“{lead.excerpt}”</div>
-                </div>
 
-                <div className="lead-side">
-                  <span
-                    className={`intent-pill ${lead.urgency === 'High' ? 'intent-pill-urgent' : ''}`}
-                  >
-                    {lead.purchase_intent} intent
-                  </span>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onOpenReplyStudio(lead.id);
-                    }}
-                  >
-                    <MessageSquare size={13} />
-                    <span>Open reply</span>
-                  </button>
+                  <div className="lead-main">
+                    <div className="lead-meta" style={{ flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
+                      <span className="badge badge-low">{PLATFORM_LABELS[lead.platform] || lead.platform}</span>
+                      <span style={{ fontWeight: 600 }}>{lead.community}</span>
+                      <span>·</span>
+                      <span>{lead.published_at || 'Recent'}</span>
+
+                      {/* Judged By AI vs Heuristic */}
+                      {lead.judged_by === 'llm' ? (
+                        <span className="badge badge-high" title="Evaluated by AI model">
+                          <Bot size={11} style={{ display: 'inline', marginRight: '3px' }} />
+                          AI Judged
+                        </span>
+                      ) : (
+                        <span className="badge badge-low" title="Matched via heuristic rules">
+                          Rule Match
+                        </span>
+                      )}
+
+                      {/* Thread Health badges */}
+                      {isLocked && (
+                        <span className="badge badge-danger" title="Thread is archived or locked against new comments">
+                          <Lock size={11} style={{ display: 'inline', marginRight: '3px' }} />
+                          Locked / Archived
+                        </span>
+                      )}
+
+                      {isCrowded && (
+                        <span className="badge badge-amber" title="80+ comments: new replies may get buried">
+                          Crowded
+                        </span>
+                      )}
+
+                      {th?.num_comments !== undefined && th.num_comments !== null && (
+                        <span
+                          style={{
+                            fontSize: 'var(--fs-2xs)',
+                            color: 'var(--text-subtle)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                          }}
+                        >
+                          <MessageCircle size={11} />
+                          {th.num_comments}
+                        </span>
+                      )}
+
+                      {lead.competitor_mentioned && (
+                        <span className="badge badge-amber">vs {lead.competitor_mentioned}</span>
+                      )}
+                    </div>
+
+                    <h3>{lead.title}</h3>
+                    <p>
+                      <strong>{lead.customer_problem}</strong>
+                    </p>
+                    <div className="evidence-line">&ldquo;{lead.excerpt}&rdquo;</div>
+                  </div>
+
+                  <div className="lead-side">
+                    <span
+                      className={`intent-pill ${lead.urgency === 'High' ? 'intent-pill-urgent' : ''}`}
+                    >
+                      {lead.purchase_intent} intent
+                    </span>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenReplyStudio(lead.id);
+                      }}
+                    >
+                      <MessageSquare size={13} />
+                      <span>Open reply</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -279,7 +337,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
           <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div>
-                <div className="lead-meta">
+                <div className="lead-meta" style={{ flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
                   <span
                     className={`badge ${
                       selectedLead.score >= 75 ? 'badge-high' : 'badge-medium'
@@ -290,6 +348,16 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
                   <span className="badge badge-low">
                     {selectedLead.classification.replaceAll('_', ' ')}
                   </span>
+                  {selectedLead.judged_by === 'llm' ? (
+                    <span className="badge badge-high">
+                      <Sparkles size={11} style={{ display: 'inline', marginRight: '3px' }} />
+                      AI Evaluated ({Math.round((selectedLead.confidence || 0.85) * 100)}% Confidence)
+                    </span>
+                  ) : (
+                    <span className="badge badge-low">
+                      Heuristic Rules Qualified
+                    </span>
+                  )}
                 </div>
                 <h2 id="modal-lead-title">{selectedLead.title}</h2>
               </div>
@@ -302,13 +370,85 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
               </button>
             </div>
 
+            {/* Thread Health & Opportunity Facts */}
+            <div
+              style={{
+                background: 'var(--surface-subtle)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--r-md)',
+                padding: 'var(--sp-4)',
+                marginBottom: 'var(--sp-4)',
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 'var(--fs-xs)',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  color: 'var(--text-subtle)',
+                  marginBottom: 'var(--sp-2)',
+                }}
+              >
+                Thread Reply Health & Opportunity
+              </div>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                  gap: 'var(--sp-2)',
+                  fontSize: 'var(--fs-xs)',
+                }}
+              >
+                <div>
+                  <span style={{ color: 'var(--text-subtle)' }}>Status: </span>
+                  <strong>
+                    {selectedLead.thread_health?.commentable === false
+                      ? '🔒 Locked/Archived'
+                      : '✅ Open for Replies'}
+                  </strong>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-subtle)' }}>Discussion: </span>
+                  <strong>
+                    {selectedLead.thread_health?.num_comments ?? '–'} replies
+                  </strong>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-subtle)' }}>Points: </span>
+                  <strong>{selectedLead.thread_health?.score ?? '–'}</strong>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-subtle)' }}>Age: </span>
+                  <strong>
+                    {selectedLead.thread_health?.age_days !== undefined &&
+                    selectedLead.thread_health?.age_days !== null
+                      ? `${selectedLead.thread_health.age_days} days`
+                      : 'Recent'}
+                  </strong>
+                </div>
+              </div>
+
+              {selectedLead.thread_health?.warnings &&
+                selectedLead.thread_health.warnings.length > 0 && (
+                  <div style={{ marginTop: 'var(--sp-2)', display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+                    {selectedLead.thread_health.warnings.map((w, idx) => (
+                      <span key={idx} className="badge badge-amber" style={{ fontSize: '11px' }}>
+                        <AlertTriangle size={11} style={{ display: 'inline', marginRight: '3px' }} />
+                        {w}
+                      </span>
+                    ))}
+                  </div>
+                )}
+            </div>
+
             <div className="score-breakdown">
               {[
-                ['ICP Match', selectedLead.score_breakdown.icp_match, 25],
                 ['Problem Fit', selectedLead.score_breakdown.problem_fit, 30],
-                ['Intent', selectedLead.score_breakdown.buying_intent, 20],
-                ['Urgency', selectedLead.score_breakdown.urgency, 15],
-                ['Recency', selectedLead.score_breakdown.recency, 10],
+                ['ICP Match', selectedLead.score_breakdown.icp_match, 25],
+                ['Buying Intent', selectedLead.score_breakdown.buying_intent, 20],
+                ['Pain Urgency', selectedLead.score_breakdown.urgency, 15],
+                ['Opportunity', selectedLead.score_breakdown.recency, 10],
               ].map(([label, value, max]) => (
                 <div className="score-breakdown-item" key={String(label)}>
                   <span>{label}</span>
@@ -322,7 +462,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
 
             <div className="detail-block">
               <label className="label">Customer Evidence Quote</label>
-              <blockquote>“{selectedLead.excerpt}”</blockquote>
+              <blockquote>&ldquo;{selectedLead.excerpt}&rdquo;</blockquote>
               <p style={{ marginTop: 'var(--sp-2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
                 {selectedLead.evidence}
               </p>
