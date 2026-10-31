@@ -27,7 +27,23 @@ Agent Reach is an AI customer intelligence and lead discovery agent. It analyzes
 
 ## 🚀 Quick Start
 
-### 1. Start the Customer Discovery Dashboard
+### 1. Model Context Protocol (MCP) Mode (Antigravity, Claude Code, Cursor, VS Code)
+
+Connect Agent Reach directly to your AI assistant:
+```bash
+# Run FastMCP server over stdio:
+agent-reach mcp
+# or:
+python -m agent_reach.mcp.server
+```
+
+> **Zero External LLM APIs Needed:** In MCP mode, your host AI (Claude, Cursor, Antigravity) handles all reasoning, lead scoring, and reply generation. The server harvests community conversations directly and persists findings into SQLite.
+
+See [docs/mcp_setup.md](docs/mcp_setup.md) for pre-built configurations for Antigravity, Cursor (`.cursor/mcp.json`), Claude Code (`.mcp.json`), and VS Code.
+
+---
+
+### 2. Start the Customer Discovery Dashboard
 
 ```bash
 # Starts the FastAPI server and serves the built dashboard UI at http://127.0.0.1:8000
