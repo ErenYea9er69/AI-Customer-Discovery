@@ -133,6 +133,7 @@ class ApproveReplyRequest(BaseModel):
 class UpdateSettingsRequest(BaseModel):
     posting_settings: Optional[PostingSettings] = None
     llm_settings: Optional[Dict[str, Any]] = None
+    mcp_settings: Optional[Dict[str, Any]] = None
 
 
 
@@ -394,7 +395,9 @@ def get_settings():
     if isinstance(llm, dict) and "api_key" in llm:
         llm["has_api_key"] = bool(llm.get("api_key"))
         llm["api_key"] = MASKED_SECRET
-    return {"posting_settings": masked_posting, "llm_settings": llm}
+    from agent_reach.mcp.helpers import get_or_init_mcp_settings
+    mcp_cfg = get_or_init_mcp_settings(storage)
+    return {"posting_settings": masked_posting, "llm_settings": llm, "mcp_settings": mcp_cfg}
 
 
 @app.post("/api/settings")
@@ -414,6 +417,9 @@ def update_settings(data: UpdateSettingsRequest):
             new_llm["api_key"] = existing_llm["api_key"]
         storage.set_setting("llm_settings", new_llm)
         orchestrator.reload_llm()   # new provider or key applies without a restart
+    if data.mcp_settings is not None:
+        from agent_reach.mcp.helpers import update_mcp_settings
+        update_mcp_settings(storage, data.mcp_settings)
     return {"ok": True}
 
 

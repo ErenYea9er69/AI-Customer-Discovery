@@ -5,8 +5,9 @@ import {
   ShieldAlert,
   CheckCircle2,
   AlertTriangle,
+  Cpu,
 } from 'lucide-react';
-import type { PostingSettings, LLMSettings } from '../types';
+import type { PostingSettings, LLMSettings, MCPSettings } from '../types';
 import { api } from '../api';
 
 export const SettingsView: React.FC = () => {
@@ -41,6 +42,15 @@ export const SettingsView: React.FC = () => {
     configured: false,
   });
 
+  const [mcpSettings, setMcpSettings] = useState<MCPSettings>({
+    discovery_mode: 'host_driven',
+    default_output_format: 'both',
+    default_min_score: 70,
+    default_export_path: './discovery_exports',
+    emergency_stop: false,
+    auto_launch_dashboard: false,
+  });
+
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -63,6 +73,9 @@ export const SettingsView: React.FC = () => {
           ...data.llm_settings,
           api_key: '',
         }));
+      }
+      if (data.mcp_settings) {
+        setMcpSettings(data.mcp_settings);
       }
     } catch (e) {
       setErrorMessage(e instanceof Error ? e.message : 'Could not load current settings.');
@@ -94,6 +107,7 @@ export const SettingsView: React.FC = () => {
       await api.updateSettings({
         posting_settings: postPayload,
         llm_settings: llmPayload,
+        mcp_settings: mcpSettings,
       });
 
       setSavedMessage('Settings saved successfully. Changes applied to active engine.');
@@ -531,6 +545,168 @@ export const SettingsView: React.FC = () => {
               value={postingSettings.github_token || ''}
               onChange={(e) => setPostingSettings({ ...postingSettings, github_token: e.target.value })}
             />
+          </div>
+        </section>
+
+        {/* Model Context Protocol (MCP) & Host AI Settings */}
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                <Cpu size={18} style={{ color: 'var(--primary)' }} />
+                <h2>Model Context Protocol (MCP) & Host AI Controls</h2>
+              </div>
+              <p>
+                Configure how Agent Reach connects to Cursor, Claude Code, Antigravity, and VS Code.
+                Choose whether your AI assistant qualifies leads directly in chat (no external API keys needed) or triggers automated background batching.
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-5)' }}>
+            <fieldset style={{ border: 'none', padding: 0, margin: 0 }}>
+              <legend className="label" style={{ marginBottom: 'var(--sp-2)' }}>
+                Discovery Workflow Mode
+              </legend>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--sp-3)' }}>
+                <label
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 'var(--sp-1)',
+                    padding: 'var(--sp-4)',
+                    borderRadius: 'var(--r-md)',
+                    border: `1.5px solid ${mcpSettings.discovery_mode === 'host_driven' ? 'var(--primary)' : 'var(--border)'}`,
+                    backgroundColor: mcpSettings.discovery_mode === 'host_driven' ? 'var(--surface-subtle)' : 'var(--surface)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontWeight: 600 }}>
+                    <input
+                      type="radio"
+                      name="discovery_mode"
+                      value="host_driven"
+                      checked={mcpSettings.discovery_mode === 'host_driven'}
+                      onChange={() => setMcpSettings({ ...mcpSettings, discovery_mode: 'host_driven' })}
+                    />
+                    <span>Host-Driven Stepping (Recommended)</span>
+                  </div>
+                  <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', paddingLeft: 'var(--sp-5)' }}>
+                    Your host AI (Cursor, Claude Code, Antigravity) reads scraped community threads, reasons, qualifies leads, and drafts replies inside your chat. <strong>Zero external API keys required.</strong>
+                  </span>
+                </label>
+
+                <label
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 'var(--sp-1)',
+                    padding: 'var(--sp-4)',
+                    borderRadius: 'var(--r-md)',
+                    border: `1.5px solid ${mcpSettings.discovery_mode === 'built_in_auto' ? 'var(--primary)' : 'var(--border)'}`,
+                    backgroundColor: mcpSettings.discovery_mode === 'built_in_auto' ? 'var(--surface-subtle)' : 'var(--surface)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontWeight: 600 }}>
+                    <input
+                      type="radio"
+                      name="discovery_mode"
+                      value="built_in_auto"
+                      checked={mcpSettings.discovery_mode === 'built_in_auto'}
+                      onChange={() => setMcpSettings({ ...mcpSettings, discovery_mode: 'built_in_auto' })}
+                    />
+                    <span>Built-in Autonomous Engine</span>
+                  </div>
+                  <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', paddingLeft: 'var(--sp-5)' }}>
+                    Agent Reach executes query planning, scraping, heuristic scoring, and SQLite persistence automatically in a single background tool call.
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--sp-4)' }}>
+              <div className="form-group">
+                <label htmlFor="settings-mcp-output-format" className="label">
+                  Default Export Format
+                </label>
+                <select
+                  id="settings-mcp-output-format"
+                  className="input"
+                  value={mcpSettings.default_output_format}
+                  onChange={(e) =>
+                    setMcpSettings({
+                      ...mcpSettings,
+                      default_output_format: e.target.value as 'markdown' | 'json' | 'both',
+                    })
+                  }
+                >
+                  <option value="both">Both Markdown & JSON (.md + .json)</option>
+                  <option value="markdown">Markdown Report (.md)</option>
+                  <option value="json">Structured JSON (.json)</option>
+                </select>
+                <span className="form-hint">Used when AI exports customer discovery findings.</span>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="settings-mcp-min-score" className="label">
+                  Default Lead Score Threshold (0–100)
+                </label>
+                <input
+                  id="settings-mcp-min-score"
+                  type="number"
+                  min={0}
+                  max={100}
+                  className="input"
+                  value={mcpSettings.default_min_score}
+                  onChange={(e) =>
+                    setMcpSettings({
+                      ...mcpSettings,
+                      default_min_score: Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0)),
+                    })
+                  }
+                />
+                <span className="form-hint">Filter threshold for high-intent qualified leads.</span>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="settings-mcp-export-path" className="label">
+                  Default Export Directory
+                </label>
+                <input
+                  id="settings-mcp-export-path"
+                  type="text"
+                  className="input"
+                  value={mcpSettings.default_export_path}
+                  onChange={(e) => setMcpSettings({ ...mcpSettings, default_export_path: e.target.value })}
+                />
+                <span className="form-hint">Where .md and .json files are saved on disk.</span>
+              </div>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 'var(--sp-3)',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={mcpSettings.auto_launch_dashboard}
+                  onChange={(e) => setMcpSettings({ ...mcpSettings, auto_launch_dashboard: e.target.checked })}
+                  style={{ width: '16px', height: '16px' }}
+                />
+                <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 500 }}>
+                  Automatically open browser UI when AI launches the dashboard tool
+                </span>
+              </label>
+            </div>
           </div>
         </section>
 

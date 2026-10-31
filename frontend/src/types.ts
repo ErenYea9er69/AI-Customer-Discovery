@@ -160,9 +160,19 @@ export interface LLMSettings {
   configured?: boolean;
 }
 
+export interface MCPSettings {
+  discovery_mode: 'host_driven' | 'built_in_auto';
+  default_output_format: 'markdown' | 'json' | 'both';
+  default_min_score: number;
+  default_export_path: string;
+  emergency_stop: boolean;
+  auto_launch_dashboard: boolean;
+}
+
 export interface SettingsPayload {
   posting_settings: PostingSettings;
   llm_settings: LLMSettings;
+  mcp_settings?: MCPSettings;
 }
 
 export interface PlatformInfo {

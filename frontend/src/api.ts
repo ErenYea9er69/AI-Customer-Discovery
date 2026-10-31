@@ -261,6 +261,7 @@ export const api = {
   async updateSettings(settings: {
     posting_settings?: Partial<PostingSettings>;
     llm_settings?: Record<string, any>;
+    mcp_settings?: Partial<import('./types').MCPSettings>;
   }): Promise<void> {
     const res = await fetch(`${BASE_URL}/settings`, {
       method: 'POST',
