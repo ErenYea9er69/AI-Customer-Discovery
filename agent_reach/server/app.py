@@ -73,7 +73,19 @@ async def api_security_middleware(request: Request, call_next):
             token = request.headers.get("X-API-Key") or bearer
             if not token or not hmac.compare_digest(token.encode(), expected.encode()):
                 return JSONResponse(status_code=401, content={"detail": "Invalid or missing API key."})
-        elif (request.client.host if request.client else "") not in _LOOPBACK:
+        elif (request.client.host if request.client else "") in _LOOPBACK:
+            origin = request.headers.get("origin")
+            if origin and origin not in allowed_origins:
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": f"Cross-origin request from '{origin}' is forbidden."},
+                )
+            if request.headers.get("sec-fetch-site") == "cross-site":
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Cross-site requests to local API are forbidden."},
+                )
+        else:
             return JSONResponse(
                 status_code=403,
                 content={"detail": "Set AGENT_REACH_API_KEY to allow non-local access."},
@@ -168,14 +180,16 @@ def _extract(fn, *args, **kwargs):
 
 @app.post("/api/profile/extract-url")
 def extract_from_url(req: ExtractUrlRequest, request: Request):
-    if not rate_limiter.check(f"extract:{_client_ip(request)}", max_requests=15):
+    ip = _client_ip(request)
+    if not (rate_limiter.check(f"extract:{ip}", max_requests=15) and rate_limiter.check(f"extract_url:{ip}", max_requests=15)):
         raise HTTPException(status_code=429, detail="Rate limit exceeded for profile extraction.")
     return _extract(orchestrator.business_engine.analyze_website, req.url)
 
 
 @app.post("/api/profile/extract-manual")
 def extract_from_manual(req: ExtractManualRequest, request: Request):
-    if not rate_limiter.check(f"extract:{_client_ip(request)}", max_requests=15):
+    ip = _client_ip(request)
+    if not (rate_limiter.check(f"extract:{ip}", max_requests=15) and rate_limiter.check(f"extract_manual:{ip}", max_requests=15)):
         raise HTTPException(status_code=429, detail="Rate limit exceeded for profile extraction.")
     return _extract(orchestrator.business_engine.analyze_manual_description, req.description, name=req.name)
 

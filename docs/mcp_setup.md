@@ -140,3 +140,4 @@ Add to your `claude_desktop_config.json` (`%APPDATA%\Claude\claude_desktop_confi
 
 ### Prompt 3: Headless Export
 > *"Search GitHub issues and Reddit for people complaining about expensive email outreach tools. Save the top leads to the database and generate a markdown report in `./reports/outreach_leads.md`. No need to open the UI."*
+

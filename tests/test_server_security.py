@@ -163,3 +163,25 @@ def test_rate_limiting_enforcement(tmp_path):
     resp = client.post("/api/profile/extract-url", json={"url": "https://example.com"})
     assert resp.status_code == 429
     assert "Rate limit exceeded" in resp.json()["detail"]
+
+
+def test_loopback_cross_site_protection(tmp_path):
+    from agent_reach.server import app as server_mod
+    test_storage = DiscoveryStorage(tmp_path / "test_cs.db")
+    server_mod.storage = test_storage
+    server_mod.orchestrator = DiscoveryOrchestrator(test_storage)
+    client = TestClient(app)
+
+    # 1. Untrusted cross-origin header should be rejected with 403
+    evil_resp = client.get("/api/profile", headers={"Origin": "https://attacker-site.com"})
+    assert evil_resp.status_code == 403
+    assert "Cross-origin request" in evil_resp.json()["detail"]
+
+    # 2. Sec-Fetch-Site: cross-site should be rejected with 403
+    cross_site_resp = client.get("/api/profile", headers={"Sec-Fetch-Site": "cross-site"})
+    assert cross_site_resp.status_code == 403
+    assert "Cross-site requests" in cross_site_resp.json()["detail"]
+
+    # 3. Trusted local origin should succeed
+    local_resp = client.get("/api/profile", headers={"Origin": "http://localhost:5173"})
+    assert local_resp.status_code == 200

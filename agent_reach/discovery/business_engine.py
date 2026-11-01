@@ -18,7 +18,7 @@ from agent_reach.discovery.models import (
     FactItem,
     InferenceItem,
 )
-from agent_reach.utils.url import normalize_public_http_url
+from agent_reach.utils.url import create_safe_session, normalize_public_http_url
 
 log = logging.getLogger("agent_reach.discovery")
 
@@ -196,7 +196,7 @@ Output valid JSON matching this schema:
     def _safe_fetch(self, target_url: str, headers: Dict[str, str], timeout: float = 10) -> Optional[str]:
         """Fetch page text with SSRF checks on every redirect hop and a size cap."""
         current_url = normalize_public_http_url(target_url)
-        session = requests.Session()
+        session = create_safe_session()
         for _ in range(4):
             try:
                 self._assert_public_host(current_url)

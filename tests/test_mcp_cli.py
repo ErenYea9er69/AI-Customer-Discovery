@@ -20,3 +20,4 @@ def test_cli_mcp_run(mock_server_main):
     code = main(["mcp"])
     assert code == 0
     mock_server_main.assert_called_once()
+

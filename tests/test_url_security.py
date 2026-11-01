@@ -91,3 +91,13 @@ def test_fixed_domain_channels_reject_suffix_lookalikes_and_userinfo(
 )
 def test_host_matches_rejects_invalid_ports(malicious_url):
     assert not host_matches(malicious_url, "x.com")
+
+
+def test_dns_rebinding_defense():
+    from agent_reach.utils.url import create_safe_session
+
+    session = create_safe_session()
+    for target in ("http://127.0.0.1:80", "http://localhost:80", "http://169.254.169.254", "http://10.0.0.1"):
+        with pytest.raises(Exception) as exc_info:
+            session.get(target, timeout=1)
+        assert any(term in str(exc_info.value).lower() for term in ("blocked", "connection", "private", "internal"))
