@@ -119,6 +119,40 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
     }
   };
 
+  const handleCreateEmptyProfile = () => {
+    const empty: BusinessProfile = {
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+      name: nameInput.trim() || 'New Business Profile',
+      url: urlInput.trim() || undefined,
+      description: descInput.trim() || '',
+      industry: '',
+      niche: '',
+      main_product_or_service: '',
+      features: [],
+      problems_solved: [],
+      customer_outcomes: [],
+      icp: '',
+      target_industries: [],
+      target_roles: [],
+      customer_demographics: [],
+      customer_frustrations: [],
+      competitors_and_alternatives: [],
+      unique_selling_points: [],
+      pricing_info: '',
+      geographic_market: 'Global',
+      trigger_events: [],
+      pain_vocabulary: [],
+      not_for: [],
+      facts: [],
+      inferences: [],
+      confirmed: false,
+      created_at: Date.now() / 1000,
+      updated_at: Date.now() / 1000,
+    };
+    setFormData(empty);
+    onProfileUpdated(empty);
+  };
+
   const handleConfirmProfile = async () => {
     setLoading(true);
     try {
@@ -250,7 +284,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onProfileUpda
               disabled={loading}
               required
             />
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={handleCreateEmptyProfile}
+                disabled={loading}
+              >
+                <span>Or Fill In Manually (No AI)</span>
+              </button>
               <button type="submit" className="btn btn-primary" disabled={loading}>
                 <FileText size={16} />
                 <span>{loading ? 'Synthesizing Profile…' : 'Extract Business Profile'}</span>

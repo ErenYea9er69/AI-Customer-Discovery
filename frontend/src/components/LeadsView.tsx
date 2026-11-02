@@ -202,8 +202,16 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
             <div className="empty-icon">
               <Inbox size={20} />
             </div>
-            <strong>No leads match these filters</strong>
-            <span>Try clearing search keywords, adjusting intent filters, or launching a new campaign.</span>
+            <strong>
+              {searchQuery || filterScore !== 'all' || filterPlatform !== 'all' || filterIntent !== 'all' || filterCategory !== 'all'
+                ? 'No leads match these filters'
+                : 'Your discovery queue is empty'}
+            </strong>
+            <span>
+              {searchQuery || filterScore !== 'all' || filterPlatform !== 'all' || filterIntent !== 'all' || filterCategory !== 'all'
+                ? 'Try clearing search keywords or adjusting your classification and intent filters.'
+                : 'Confirm your business profile and launch your first customer discovery campaign to uncover qualified buyer discussions.'}
+            </span>
           </div>
         ) : (
           <div className="lead-list">

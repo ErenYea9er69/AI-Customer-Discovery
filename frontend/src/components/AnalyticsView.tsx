@@ -82,6 +82,19 @@ export const AnalyticsView: React.FC = () => {
         </div>
       </div>
 
+      {/* First Run / Zero State Banner */}
+      {analytics.total_leads === 0 && (
+        <section className="notice notice-info" style={{ marginBottom: 'var(--sp-6)' }}>
+          <Lightbulb size={20} />
+          <div>
+            <strong>Ready for Autonomous Discovery</strong>
+            <span>
+              Once you set up your business profile and launch your first campaign in the Discovery Engine, aggregated customer pain points, community breakdown stats, and competitor dissatisfaction patterns will populate here automatically.
+            </span>
+          </div>
+        </section>
+      )}
+
       {/* Strategic Playbooks */}
       {analytics.recommendations && analytics.recommendations.length > 0 && (
         <section style={{ marginBottom: 'var(--sp-6)' }}>

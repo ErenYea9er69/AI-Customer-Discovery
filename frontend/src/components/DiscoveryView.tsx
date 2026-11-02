@@ -65,7 +65,9 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   onNavigateToProfile,
 }) => {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [campaignName, setCampaignName] = useState('Customer Opportunity Scan');
+  const [campaignName, setCampaignName] = useState(
+    profile?.name ? `${profile.name} Discovery Scan` : ''
+  );
   const [platformInfo, setPlatformInfo] = useState<PlatformInfo>({
     platforms: ['reddit', 'hackernews', 'web', 'quora', 'github', 'twitter'],
     default: ['reddit', 'hackernews', 'web'],
@@ -78,6 +80,12 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const [activeCampaign, setActiveCampaign] = useState<Campaign | null>(null);
   const [expandedCampaignId, setExpandedCampaignId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'info' | 'error' | 'success'; message: string } | null>(null);
+
+  useEffect(() => {
+    if (!campaignName && profile?.name) {
+      setCampaignName(`${profile.name} Discovery Scan`);
+    }
+  }, [profile?.name, campaignName]);
 
   const loadPlatforms = useCallback(async () => {
     try {
@@ -176,9 +184,10 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     }
     setRunning(true);
     setCancelling(false);
+    const nameToUse = campaignName.trim() || (profile?.name ? `${profile.name} Discovery Scan` : 'Customer Discovery');
     setFeedback(null);
     try {
-      const campId = await api.launchCampaign(campaignName, selectedPlatforms, maxLeads);
+      const campId = await api.launchCampaign(nameToUse, selectedPlatforms, maxLeads);
       const camp = await api.getCampaign(campId);
       setActiveCampaign(camp);
       setExpandedCampaignId(campId);
@@ -300,6 +309,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               id="discovery-campaign-name"
               type="text"
               className="input"
+              placeholder={profile?.name ? `${profile.name} Discovery Scan` : 'e.g. Q1 Customer Opportunity Hunt'}
               value={campaignName}
               onChange={(e) => setCampaignName(e.target.value)}
               disabled={running}

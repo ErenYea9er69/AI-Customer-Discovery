@@ -21,14 +21,7 @@ export const SettingsView: React.FC = () => {
     max_mention_ratio: 0.1,
     require_account_health: true,
     require_rules_ack: true,
-    allowed_communities: [
-      'r/startups',
-      'r/SaaS',
-      'r/Entrepreneur',
-      'r/smallbusiness',
-      'r/devops',
-      'r/webdev',
-    ],
+    allowed_communities: [],
     emergency_stop: false,
     reddit_client_id: '',
     reddit_client_secret: '',
@@ -519,7 +512,7 @@ export const SettingsView: React.FC = () => {
               id="settings-allowed-communities"
               type="text"
               className="input"
-              placeholder="r/startups, r/SaaS, r/Entrepreneur, r/smallbusiness"
+              placeholder="Leave empty for all communities, or specify whitelist e.g. r/startups, r/SaaS"
               value={postingSettings.allowed_communities.join(', ')}
               onChange={(e) =>
                 setPostingSettings({
@@ -532,7 +525,7 @@ export const SettingsView: React.FC = () => {
               }
             />
             <div className="helper-text" style={{ marginTop: '4px' }}>
-              The publisher strictly refuses to post to any Reddit community not explicitly listed here.
+              Leave empty to allow all communities that pass safety checks, or restrict posting exclusively to listed subreddits.
             </div>
           </div>
         </section>
