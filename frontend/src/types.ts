@@ -31,6 +31,8 @@ export interface BusinessProfile {
   pricing_info?: string;
   geographic_market: string;
   trigger_events: string[];
+  pain_vocabulary: string[];
+  not_for: string[];
   facts: FactItem[];
   inferences: InferenceItem[];
   confirmed: boolean;
@@ -45,6 +47,7 @@ export interface SearchQuery {
   platform: string;
   target_community?: string;
   rationale: string;
+  stage?: string;
 }
 
 export interface Campaign {
@@ -116,6 +119,11 @@ export interface LeadQualification {
   confidence: number;
   judged_by?: 'llm' | 'heuristic';
   thread_health?: ThreadHealth;
+  post_type?: string;
+  evidence_verified?: boolean;
+  reply_policy?: 'draft' | 'human_only' | string;
+  status?: 'new' | 'rejected' | 'replied' | 'closed';
+  reject_reason?: string;
   created_at: number;
 }
 
@@ -132,6 +140,18 @@ export interface GeneratedReply {
   target_url: string;
   affiliation_disclosure: string;
   error_message?: string;
+  target_kind?: 'post' | 'comment';
+  target_comment_id?: string;
+  target_author?: string;
+  target_text?: string;
+  target_reason?: string;
+  pitch_level?: number;
+  lint?: Record<string, any>;
+  needs_human_edit?: boolean;
+  generated_by?: string;
+  published_comment_id?: string;
+  published_url?: string;
+  outcome?: Record<string, any>;
   created_at?: number;
   updated_at?: number;
 }
@@ -141,7 +161,11 @@ export interface PostingSettings {
   daily_limit: number;
   min_interval_seconds: number;
   allowed_communities: string[];
+  require_account_health?: boolean;
   emergency_stop: boolean;
+  interval_jitter?: number;
+  max_mention_ratio?: number;
+  require_rules_ack?: boolean;
   reddit_client_id?: string;
   reddit_client_secret?: string;
   reddit_username?: string;
@@ -183,6 +207,13 @@ export interface PlatformInfo {
 
 export interface AnalyticsSummary {
   total_leads: number;
+  top_communities?: { community: string; leads: number; high_potential: number }[];
+  reply_mix?: {
+    published_last_90_days: number;
+    product_aware: number;
+    value_first: number;
+    product_share?: number;
+  };
   common_complaints: { problem: string; count: number; category: string }[];
   pain_point_categories: { category: string; count: number }[];
   high_urgency_problems: { problem: string; count: number; community: string; excerpt: string }[];

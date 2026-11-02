@@ -7,6 +7,10 @@ import {
   XCircle,
   Filter,
   Check,
+  ChevronDown,
+  ChevronUp,
+  Search,
+  AlertCircle,
 } from 'lucide-react';
 import type { BusinessProfile, Campaign, PlatformInfo } from '../types';
 import { api } from '../api';
@@ -14,6 +18,7 @@ import { api } from '../api';
 interface DiscoveryViewProps {
   profile: BusinessProfile | null;
   onCampaignFinished: () => void;
+  onNavigateToProfile?: () => void;
 }
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -25,8 +30,15 @@ const PLATFORM_LABELS: Record<string, string> = {
   twitter: 'Twitter / X',
 };
 
+const STAGE_LABELS: Record<string, string> = {
+  switching: 'Switching / Dissatisfaction',
+  solution: 'Solution Seeking',
+  problem: 'Problem Venting',
+  category: 'Category Exploration',
+};
+
 function formatDiagnosticKey(key: string): string {
-  if (key === 'archived') return 'Archived or locked threads';
+  if (key === 'archived') return 'Archived / locked threads';
   if (key === 'dead_thread') return 'Inactive threads (zero replies)';
   if (key === 'not_discussion') return 'Non-discussion pages (pricing/docs)';
   if (key === 'too_old') return 'Exceeded maximum age cutoff';
@@ -47,9 +59,13 @@ function formatDiagnosticKey(key: string): string {
   return key.replaceAll('_', ' ');
 }
 
-export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaignFinished }) => {
+export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
+  profile,
+  onCampaignFinished,
+  onNavigateToProfile,
+}) => {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [campaignName, setCampaignName] = useState('Quarterly Opportunity Hunt');
+  const [campaignName, setCampaignName] = useState('Customer Opportunity Scan');
   const [platformInfo, setPlatformInfo] = useState<PlatformInfo>({
     platforms: ['reddit', 'hackernews', 'web', 'quora', 'github', 'twitter'],
     default: ['reddit', 'hackernews', 'web'],
@@ -60,6 +76,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
   const [running, setRunning] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [activeCampaign, setActiveCampaign] = useState<Campaign | null>(null);
+  const [expandedCampaignId, setExpandedCampaignId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'info' | 'error' | 'success'; message: string } | null>(null);
 
   const loadPlatforms = useCallback(async () => {
@@ -72,7 +89,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
         }
       }
     } catch {
-      // Use defaults if call fails
+      // Fallback to defaults
     }
   }, []);
 
@@ -95,7 +112,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
     void loadCampaigns();
   }, [loadPlatforms, loadCampaigns]);
 
-  // Poll progress when running
+  // Poll progress while a campaign is running
   useEffect(() => {
     if (!running || !activeCampaign) return;
     const interval = setInterval(async () => {
@@ -110,17 +127,17 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
           if (updated.status === 'completed') {
             setFeedback({
               type: 'success',
-              message: `Campaign finished: ${updated.total_qualified} qualified leads discovered across ${updated.total_found} verified discussions.`,
+              message: `Campaign complete: ${updated.total_qualified} qualified leads discovered across ${updated.total_found} verified discussions.`,
             });
           } else if (updated.status === 'cancelled') {
             setFeedback({
               type: 'info',
-              message: 'Campaign run was stopped by user request.',
+              message: 'Campaign execution was stopped by user request.',
             });
           } else {
             setFeedback({
               type: 'error',
-              message: updated.current_step || 'Campaign ended unexpectedly. Please inspect the log.',
+              message: updated.current_step || 'Campaign failed. Check server logs for details.',
             });
           }
         }
@@ -146,7 +163,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
     if (!profile) {
       setFeedback({
         type: 'error',
-        message: 'Please extract and save your business profile first.',
+        message: 'Please set up your business profile first in the Profile tab.',
       });
       return;
     }
@@ -159,13 +176,15 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
     }
     setRunning(true);
     setCancelling(false);
+    setFeedback(null);
     try {
       const campId = await api.launchCampaign(campaignName, selectedPlatforms, maxLeads);
       const camp = await api.getCampaign(campId);
       setActiveCampaign(camp);
+      setExpandedCampaignId(campId);
       setFeedback({
         type: 'info',
-        message: 'Discovery campaign started. Live progress will update below.',
+        message: 'Discovery campaign initiated. Progress updates stream in real-time below.',
       });
     } catch (err: any) {
       setFeedback({
@@ -183,7 +202,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
       const res = await api.cancelCampaign(activeCampaign.id);
       setFeedback({
         type: 'info',
-        message: res.message || 'Cancellation requested. Stopping background query workers…',
+        message: res.message || 'Cancellation requested. Halting query workers…',
       });
     } catch (err: any) {
       setFeedback({
@@ -200,7 +219,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
         <div>
           <h1>Discovery Engine</h1>
           <p>
-            Scan verified community conversations across Hacker News, Reddit, and the open web for users actively reporting pain points that match your ICP.
+            Scan verified community conversations across Hacker News, Reddit, and public web forums for users actively reporting pain points that match your ICP.
           </p>
         </div>
       </div>
@@ -223,23 +242,42 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
         </div>
       )}
 
+      {/* Profile Unconfirmed Warning Banner */}
+      {(!profile || !profile.confirmed) && (
+        <div className="notice notice-warning" role="alert" style={{ marginBottom: 'var(--sp-6)' }}>
+          <AlertCircle size={20} />
+          <div>
+            <strong>Business profile review required before discovery</strong>
+            <span>
+              Autonomous query planning requires confirmed ICP parameters, pain vocabulary, and negative guardrails to avoid off-target searches.
+            </span>
+          </div>
+          {onNavigateToProfile && (
+            <button className="btn btn-secondary btn-sm" onClick={onNavigateToProfile}>
+              Review Profile
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Launch Configuration Panel */}
       <section className="panel" style={{ marginBottom: 'var(--sp-6)' }}>
         <div className="panel-header" style={{ marginBottom: 'var(--sp-5)' }}>
           <div>
-            <h2>Launch New Discovery Campaign</h2>
-            <p>Select target sources and depth. The engine generates natural problem-hunting queries.</p>
+            <h2>Configure & Launch Discovery Campaign</h2>
+            <p>Select target platforms, search depth, and launch autonomous multi-stage search planning.</p>
           </div>
           <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
             {running && activeCampaign && (
               <button
                 type="button"
-                className="btn btn-danger btn-sm"
+                className="btn btn-secondary btn-sm"
                 onClick={handleCancelCampaign}
                 disabled={cancelling}
+                style={{ color: 'var(--danger-text)', borderColor: 'var(--danger-border)' }}
               >
                 <XCircle size={15} />
-                <span>{cancelling ? 'Stopping…' : 'Cancel Run'}</span>
+                <span>{cancelling ? 'Stopping Workers…' : 'Cancel Run'}</span>
               </button>
             )}
             <button
@@ -248,7 +286,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
               disabled={running || !profile?.confirmed}
             >
               {running ? <RotateCcw size={16} className="spin" /> : <Play size={16} />}
-              <span>{running ? 'Research in Progress…' : 'Launch Customer Discovery'}</span>
+              <span>{running ? 'Harvesting Discussions…' : 'Launch Customer Discovery'}</span>
             </button>
           </div>
         </div>
@@ -270,7 +308,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
 
           <div className="form-group">
             <label className="label">
-              Discovery Sources ({selectedPlatforms.length} selected)
+              Discovery Sources ({selectedPlatforms.length} active)
             </label>
             <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
               {platformInfo.platforms.map((p) => {
@@ -284,8 +322,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
                     aria-pressed={isSelected}
                     onClick={() => togglePlatform(p)}
                     disabled={running}
-                    title={isWeak ? 'Secondary platform: lower lead volume or restrictive rate limits' : undefined}
-                    style={{ position: 'relative' }}
+                    title={isWeak ? 'Secondary platform: lower lead volume or restrictive API rate limits' : undefined}
                   >
                     {isSelected && <Check size={13} />}
                     <span>{PLATFORM_LABELS[p] || p}</span>
@@ -294,7 +331,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
                         style={{
                           fontSize: '10px',
                           opacity: 0.85,
-                          marginLeft: '3px',
+                          marginLeft: '2px',
                           fontWeight: 400,
                         }}
                       >
@@ -309,24 +346,25 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
 
           <div className="form-group">
             <label htmlFor="discovery-max-leads" className="label">
-              Max Leads to Qualify
+              Max Leads Target
             </label>
             <select
               id="discovery-max-leads"
               className="select"
               value={maxLeads}
-              onChange={(e) => setMaxLeads(parseInt(e.target.value))}
+              onChange={(e) => setMaxLeads(parseInt(e.target.value, 10))}
               disabled={running}
             >
               <option value="5">Quick Scan (5 Leads)</option>
               <option value="15">Standard Campaign (15 Leads)</option>
               <option value="30">Deep Harvest (30 Leads)</option>
               <option value="50">Comprehensive Search (50 Leads)</option>
+              <option value="100">Maximum Harvest (100 Leads)</option>
             </select>
           </div>
         </div>
 
-        {/* Live Progress Bar if Active */}
+        {/* Live Progress Bar when active */}
         {activeCampaign && running && (
           <div
             style={{
@@ -372,12 +410,12 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
               <span>High Potential: <strong className="tabular">{activeCampaign.high_potential_count}</strong></span>
               {cancelling && (
                 <span style={{ color: 'var(--danger)', fontWeight: 600 }}>
-                  Stopping background workers…
+                  Halting background search workers…
                 </span>
               )}
             </div>
 
-            {/* Live Diagnostics breakdown */}
+            {/* Quality Filtering Diagnostics */}
             {activeCampaign.diagnostics && Object.keys(activeCampaign.diagnostics).length > 0 && (
               <div
                 style={{
@@ -398,7 +436,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
                   }}
                 >
                   <Filter size={13} />
-                  <span>Quality Filtering Diagnostics:</span>
+                  <span>Quality Diagnostics (Filtered Out):</span>
                 </div>
                 <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
                   {Object.entries(activeCampaign.diagnostics).map(([key, count]) => (
@@ -407,7 +445,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
                       className="badge badge-low"
                       style={{ fontSize: 'var(--fs-2xs)' }}
                     >
-                      {formatDiagnosticKey(key)}: <strong>{count}</strong>
+                      {formatDiagnosticKey(key)}: <strong className="tabular">{count}</strong>
                     </span>
                   ))}
                 </div>
@@ -437,36 +475,36 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
             marginBottom: 'var(--sp-3)',
           }}
         >
-          <HelpCircle size={16} /> Autonomous Query Generation & Verification
+          <HelpCircle size={16} /> Autonomous Query Generation & Thread Checks
         </div>
         <div className="form-grid-3">
           <div>
-            <strong style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-main)' }}>1. Pain & Frustration Searches</strong>
+            <strong style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-main)' }}>Multi-Stage Query Planning</strong>
             <p style={{ marginTop: '4px', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              Identifies natural phrases like &ldquo;frustrated having to...&rdquo;, &ldquo;is there an easier way to...&rdquo;, &ldquo;struggling with...&rdquo; across Hacker News and Reddit.
+              Formulates distinct queries across 4 buyer funnel stages: Problem Venting, Solution Seeking, Switching / Dissatisfaction, and Category Exploration.
             </p>
           </div>
           <div>
-            <strong style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-main)' }}>2. Thread Opportunity Checks</strong>
+            <strong style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-main)' }}>Thread Opportunity Checks</strong>
             <p style={{ marginTop: '4px', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              Verifies post age, active comment count, and archive status to ensure you never waste time drafting for locked or dead threads.
+              Verifies post age, reply counts, lock/archive status, and overcrowding (&gt;80 comments) to ensure high visibility for every interaction.
             </p>
           </div>
           <div>
-            <strong style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-main)' }}>3. Strict Quality Diagnostics</strong>
+            <strong style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-main)' }}>Transparent Quality Filtering</strong>
             <p style={{ marginTop: '4px', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              Filters out self-promotional listicles, pricing pages, and spam, transparently reporting drop reasons in campaign diagnostics.
+              Screens out self-promotional listicles, pricing pages, and low-relevance threads, surfacing diagnostic metrics on every run.
             </p>
           </div>
         </div>
       </section>
 
-      {/* Campaign History */}
+      {/* Campaign History & Query Inspection */}
       <section className="panel lead-table-panel">
         <div className="table-header">
           <div>
             <h2>Campaign History</h2>
-            <span>Past discovery jobs and qualification results</span>
+            <span>Past discovery jobs, qualification yields, and generated queries</span>
           </div>
         </div>
 
@@ -476,106 +514,188 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ profile, onCampaig
               <Compass size={20} />
             </div>
             <strong>No campaigns run yet</strong>
-            <span>Configure sources above and launch your first autonomous customer discovery run.</span>
+            <span>Configure target sources above and launch your first autonomous customer discovery run.</span>
           </div>
         ) : (
           <div className="priority-list">
-            {campaigns.map((c) => (
-              <div
-                key={c.id}
-                style={{
-                  padding: 'var(--sp-4) var(--sp-5)',
-                  borderBottom: '1px solid var(--border)',
-                }}
-              >
+            {campaigns.map((c) => {
+              const isExpanded = expandedCampaignId === c.id;
+              return (
                 <div
+                  key={c.id}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 'var(--sp-4)',
-                    flexWrap: 'wrap',
+                    padding: 'var(--sp-4) var(--sp-5)',
+                    borderBottom: '1px solid var(--border)',
                   }}
                 >
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 'var(--fs-base)', color: 'var(--text-main)' }}>
-                      {c.name}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 'var(--fs-xs)',
-                        color: 'var(--text-subtle)',
-                        display: 'flex',
-                        gap: 'var(--sp-3)',
-                        marginTop: '2px',
-                        flexWrap: 'wrap',
-                      }}
-                    >
-                      <span>
-                        Sources: {c.selected_platforms.map((p) => PLATFORM_LABELS[p] || p).join(', ')}
-                      </span>
-                      <span>• Queries: {c.queries?.length || 0}</span>
-                      {c.current_step && <span>• {c.current_step}</span>}
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-4)' }}>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-main)' }}>
-                        <span className="tabular">{c.total_qualified}</span> Leads Qualified
-                      </div>
-                      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--success)' }}>
-                        <span className="tabular">{c.high_potential_count}</span> High Potential
-                      </div>
-                    </div>
-                    <span
-                      className={`badge ${
-                        c.status === 'completed'
-                          ? 'badge-high'
-                          : c.status === 'running'
-                          ? 'badge-medium'
-                          : c.status === 'cancelled'
-                          ? 'badge-amber'
-                          : 'badge-low'
-                      }`}
-                    >
-                      {c.status === 'cancelled' ? 'Cancelled' : c.status}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Historical Diagnostics if any */}
-                {c.diagnostics && Object.keys(c.diagnostics).length > 0 && (
                   <div
                     style={{
-                      marginTop: 'var(--sp-2)',
                       display: 'flex',
-                      gap: 'var(--sp-2)',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 'var(--sp-4)',
                       flexWrap: 'wrap',
                     }}
                   >
-                    {Object.entries(c.diagnostics).map(([key, count]) => (
-                      <span
-                        key={key}
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 'var(--fs-base)', color: 'var(--text-main)' }}>
+                        {c.name}
+                      </div>
+                      <div
                         style={{
-                          fontSize: '11px',
+                          fontSize: 'var(--fs-xs)',
                           color: 'var(--text-subtle)',
-                          background: 'var(--surface-subtle)',
-                          padding: '2px 6px',
-                          borderRadius: 'var(--r-xs)',
-                          border: '1px solid var(--border)',
+                          display: 'flex',
+                          gap: 'var(--sp-3)',
+                          marginTop: '2px',
+                          flexWrap: 'wrap',
                         }}
                       >
-                        {formatDiagnosticKey(key)}: <strong className="tabular">{count}</strong>
+                        <span>
+                          Sources: {c.selected_platforms.map((p) => PLATFORM_LABELS[p] || p).join(', ')}
+                        </span>
+                        <span>• Queries Planned: {c.queries?.length || 0}</span>
+                        {c.current_step && <span>• {c.current_step}</span>}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-4)' }}>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-main)' }}>
+                          <span className="tabular">{c.total_qualified}</span> Leads Qualified
+                        </div>
+                        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--success)' }}>
+                          <span className="tabular">{c.high_potential_count}</span> High Potential
+                        </div>
+                      </div>
+                      <span
+                        className={`badge ${
+                          c.status === 'completed'
+                            ? 'badge-high'
+                            : c.status === 'running'
+                            ? 'badge-medium'
+                            : c.status === 'cancelled'
+                            ? 'badge-amber'
+                            : 'badge-low'
+                        }`}
+                      >
+                        {c.status === 'cancelled' ? 'Cancelled' : c.status}
                       </span>
-                    ))}
+
+                      {c.queries && c.queries.length > 0 && (
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          onClick={() => setExpandedCampaignId(isExpanded ? null : c.id)}
+                          aria-label={isExpanded ? 'Collapse queries' : 'Expand queries'}
+                          title="Inspect planned queries"
+                        >
+                          {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        </button>
+                      )}
+                    </div>
                   </div>
-                )}
-              </div>
-            ))}
+
+                  {/* Quality Diagnostics chips */}
+                  {c.diagnostics && Object.keys(c.diagnostics).length > 0 && (
+                    <div
+                      style={{
+                        marginTop: 'var(--sp-2)',
+                        display: 'flex',
+                        gap: 'var(--sp-2)',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      {Object.entries(c.diagnostics).map(([key, count]) => (
+                        <span
+                          key={key}
+                          style={{
+                            fontSize: '11px',
+                            color: 'var(--text-subtle)',
+                            background: 'var(--surface-subtle)',
+                            padding: '2px 6px',
+                            borderRadius: 'var(--r-xs)',
+                            border: '1px solid var(--border)',
+                          }}
+                        >
+                          {formatDiagnosticKey(key)}: <strong className="tabular">{count}</strong>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Expandable Planned Queries */}
+                  {isExpanded && c.queries && c.queries.length > 0 && (
+                    <div
+                      style={{
+                        marginTop: 'var(--sp-3)',
+                        padding: 'var(--sp-3)',
+                        background: 'var(--surface-subtle)',
+                        borderRadius: 'var(--r-md)',
+                        border: '1px solid var(--border)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 'var(--fs-xs)',
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em',
+                          color: 'var(--text-subtle)',
+                          marginBottom: 'var(--sp-2)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                        }}
+                      >
+                        <Search size={12} />
+                        <span>Planned Queries ({c.queries.length})</span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
+                        {c.queries.map((q, qIdx) => (
+                          <div
+                            key={q.id || qIdx}
+                            style={{
+                              padding: 'var(--sp-2) var(--sp-3)',
+                              background: 'var(--surface)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 'var(--r-sm)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: 'var(--sp-3)',
+                              fontSize: 'var(--fs-xs)',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flex: 1, minWidth: 0 }}>
+                              <span className="badge badge-low">{PLATFORM_LABELS[q.platform] || q.platform}</span>
+                              {q.stage && (
+                                <span className="badge badge-medium" style={{ fontSize: '10px' }}>
+                                  {STAGE_LABELS[q.stage] || q.stage}
+                                </span>
+                              )}
+                              <span style={{ fontWeight: 600, color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                &ldquo;{q.query}&rdquo;
+                              </span>
+                            </div>
+                            {q.target_community && (
+                              <span style={{ color: 'var(--text-subtle)', fontSize: 'var(--fs-2xs)', flexShrink: 0 }}>
+                                {q.target_community}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </section>
     </div>
   );
 };
+
+export default DiscoveryView;

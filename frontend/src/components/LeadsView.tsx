@@ -12,6 +12,7 @@ import {
   Sparkles,
   Bot,
   AlertTriangle,
+  ShieldAlert,
 } from 'lucide-react';
 import type { LeadQualification } from '../types';
 import { api } from '../api';
@@ -48,6 +49,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
   const [filterScore, setFilterScore] = useState('all');
   const [filterPlatform, setFilterPlatform] = useState('all');
   const [filterIntent, setFilterIntent] = useState('all');
+  const [filterCategory, setFilterCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(0);
   const [selectedLead, setSelectedLead] = useState<LeadQualification | null>(null);
@@ -62,6 +64,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
         ...scoreFilter(filterScore),
         platform: filterPlatform === 'all' ? undefined : filterPlatform,
         buying_intent: filterIntent === 'all' ? undefined : filterIntent,
+        pain_point_category: filterCategory === 'all' ? undefined : filterCategory,
         query: searchQuery.trim() || undefined,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
@@ -72,7 +75,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
     } finally {
       setLoading(false);
     }
-  }, [filterScore, filterPlatform, filterIntent, searchQuery, page]);
+  }, [filterScore, filterPlatform, filterIntent, filterCategory, searchQuery, page]);
 
   useEffect(() => {
     void loadLeads();
@@ -89,7 +92,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
         <div>
           <h1>Qualified Customer Discussions</h1>
           <p>
-            Inspect customer evidence quotes, examine thread activity and reply opportunities, and prepare high-value responses.
+            Review customer evidence quotes, examine thread activity and reply opportunities, and prioritize high-value responses.
           </p>
         </div>
         <div className="queue-summary">
@@ -99,14 +102,14 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
       </section>
 
       {/* Filter Toolbar */}
-      <section className="filter-bar panel">
+      <section className="filter-bar panel" style={{ flexWrap: 'wrap', gap: 'var(--sp-3)' }}>
         <div className="search-field">
           <Search size={16} />
           <input
             id="leads-search-input"
             aria-label="Search leads by problem, title, or community"
             className="input"
-            placeholder="Search problems, keywords, or subreddits…"
+            placeholder="Search problems, pain keywords, subreddits…"
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
@@ -139,7 +142,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
           <option value="hackernews">Hacker News</option>
           <option value="web">Public Web</option>
           <option value="quora">Quora</option>
-          <option value="github">GitHub</option>
+          <option value="github">GitHub Issues</option>
           <option value="twitter">Twitter / X</option>
         </select>
 
@@ -150,9 +153,24 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
           onChange={(e) => resetPage(setFilterIntent, e.target.value)}
         >
           <option value="all">All Intent Levels</option>
-          <option value="High">High Intent</option>
+          <option value="High">High Buying Intent</option>
           <option value="Medium">Medium Intent</option>
           <option value="Low">Low Intent</option>
+        </select>
+
+        <select
+          aria-label="Filter by pain category"
+          className="select"
+          value={filterCategory}
+          onChange={(e) => resetPage(setFilterCategory, e.target.value)}
+        >
+          <option value="all">All Pain Categories</option>
+          <option value="cost">Cost & Pricing</option>
+          <option value="tool_request">Tool Recommendations</option>
+          <option value="frustration">Frustrations & Venting</option>
+          <option value="alternative">Competitor Alternatives</option>
+          <option value="workflow">Workflow & Process</option>
+          <option value="integration">Integrations & Setup</option>
         </select>
       </section>
 
@@ -170,7 +188,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
         <div className="table-header">
           <div>
             <h2>Discovered Opportunities</h2>
-            <span>Page {page + 1} · Ranked by pain alignment</span>
+            <span>Page {page + 1} · Ranked by pain alignment and buying intent</span>
           </div>
           <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
             Select any item to inspect qualification scoring and thread health
@@ -193,6 +211,8 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
               const th = lead.thread_health;
               const isLocked = th?.commentable === false;
               const isCrowded = th?.crowded === true;
+              const isHN = lead.platform === 'hackernews';
+              const isHumanOnly = lead.reply_policy === 'human_only' || isHN;
 
               return (
                 <div
@@ -230,7 +250,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
 
                       {/* Judged By AI vs Heuristic */}
                       {lead.judged_by === 'llm' ? (
-                        <span className="badge badge-high" title="Evaluated by AI model">
+                        <span className="badge badge-high" title="Evaluated by AI LLM">
                           <Bot size={11} style={{ display: 'inline', marginRight: '3px' }} />
                           AI Judged
                         </span>
@@ -244,13 +264,19 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
                       {isLocked && (
                         <span className="badge badge-danger" title="Thread is archived or locked against new comments">
                           <Lock size={11} style={{ display: 'inline', marginRight: '3px' }} />
-                          Locked / Archived
+                          Locked
                         </span>
                       )}
 
                       {isCrowded && (
-                        <span className="badge badge-amber" title="80+ comments: new replies may get buried">
+                        <span className="badge badge-amber" title="80+ comments: new replies risk getting buried">
                           Crowded
+                        </span>
+                      )}
+
+                      {isHumanOnly && (
+                        <span className="badge badge-amber" title="Platform forbids AI generated comments">
+                          Manual / Research
                         </span>
                       )}
 
@@ -295,7 +321,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
                       }}
                     >
                       <MessageSquare size={13} />
-                      <span>Open reply</span>
+                      <span>{isHumanOnly ? 'View thread' : 'Open reply'}</span>
                     </button>
                   </div>
                 </div>
@@ -325,7 +351,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
         </div>
       </section>
 
-      {/* Lead Detail Modal */}
+      {/* Lead Detail Inspection Modal */}
       {selectedLead && (
         <div
           className="modal-backdrop"
@@ -358,6 +384,9 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
                       Heuristic Rules Qualified
                     </span>
                   )}
+                  {selectedLead.competitor_mentioned && (
+                    <span className="badge badge-amber">Competitor: {selectedLead.competitor_mentioned}</span>
+                  )}
                 </div>
                 <h2 id="modal-lead-title">{selectedLead.title}</h2>
               </div>
@@ -369,6 +398,24 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
                 <X size={16} />
               </button>
             </div>
+
+            {/* Platform Policy Alert if applicable */}
+            {(selectedLead.reply_policy === 'human_only' || selectedLead.platform === 'hackernews') && (
+              <div
+                className="notice notice-warning"
+                style={{ marginTop: 'var(--sp-4)', marginBottom: 'var(--sp-4)' }}
+              >
+                <ShieldAlert size={18} />
+                <div>
+                  <strong>Platform Compliance: Manual / Research Only</strong>
+                  <span>
+                    {selectedLead.platform === 'hackernews'
+                      ? 'Hacker News policy forbids generated or AI-assisted comments (March 2026). Use this thread for customer pain research or write an original human comment.'
+                      : 'This platform bans automated drafts. Hand-crafted replies only.'}
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Thread Health & Opportunity Facts */}
             <div
@@ -415,7 +462,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
                   </strong>
                 </div>
                 <div>
-                  <span style={{ color: 'var(--text-subtle)' }}>Points: </span>
+                  <span style={{ color: 'var(--text-subtle)' }}>Upvotes: </span>
                   <strong>{selectedLead.thread_health?.score ?? '–'}</strong>
                 </div>
                 <div>
@@ -442,6 +489,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
                 )}
             </div>
 
+            {/* Score Breakdown */}
             <div className="score-breakdown">
               {[
                 ['Problem Fit', selectedLead.score_breakdown.problem_fit, 30],
@@ -463,9 +511,11 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
             <div className="detail-block">
               <label className="label">Customer Evidence Quote</label>
               <blockquote>&ldquo;{selectedLead.excerpt}&rdquo;</blockquote>
-              <p style={{ marginTop: 'var(--sp-2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
-                {selectedLead.evidence}
-              </p>
+              {selectedLead.evidence && (
+                <p style={{ marginTop: 'var(--sp-2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+                  <strong>Analysis:</strong> {selectedLead.evidence}
+                </p>
+              )}
             </div>
 
             <div className="detail-block">
@@ -492,7 +542,11 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
                 }}
               >
                 <MessageSquare size={15} />
-                <span>Draft custom reply</span>
+                <span>
+                  {selectedLead.reply_policy === 'human_only' || selectedLead.platform === 'hackernews'
+                    ? 'View in Reply Studio'
+                    : 'Draft reply in Studio'}
+                </span>
               </button>
             </div>
           </div>
@@ -501,3 +555,5 @@ export const LeadsView: React.FC<LeadsViewProps> = ({ leads: initialLeads, onOpe
     </div>
   );
 };
+
+export default LeadsView;

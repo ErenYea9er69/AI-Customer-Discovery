@@ -178,7 +178,11 @@ export const App: React.FC = () => {
               />
             )}
             {currentTab === 'discovery' && (
-              <DiscoveryView profile={profile} onCampaignFinished={refreshData} />
+              <DiscoveryView
+                profile={profile}
+                onCampaignFinished={refreshData}
+                onNavigateToProfile={() => handleNavigate('profile')}
+              />
             )}
             {currentTab === 'leads' && (
               <LeadsView

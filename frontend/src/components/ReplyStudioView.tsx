@@ -10,6 +10,9 @@ import {
   AlertTriangle,
   Lock,
   Sparkles,
+  ShieldAlert,
+  AlertCircle,
+  Check,
 } from 'lucide-react';
 import type { GeneratedReply, LeadQualification } from '../types';
 import { api } from '../api';
@@ -18,6 +21,26 @@ interface ReplyStudioViewProps {
   initialLeadId?: string;
   leads: LeadQualification[];
   onNavigateToDiscovery?: () => void;
+}
+
+const PLATFORM_MAX_WORDS: Record<string, number> = {
+  twitter: 45,
+  github: 120,
+  reddit: 150,
+  quora: 150,
+  web: 150,
+  hackernews: 0,
+};
+
+const PITCH_LABELS: Record<number, { label: string; desc: string }> = {
+  0: { label: 'Pure Value (Level 0)', desc: 'Helpful expert advice, zero product mentions' },
+  1: { label: 'Soft Mention (Level 1)', desc: 'Helpful advice with passive solution reference' },
+  2: { label: 'Product-Aware (Level 2)', desc: 'Named once with honest first-person disclosure' },
+  3: { label: 'Direct Pitch (Level 3)', desc: 'Direct solution recommendation for explicit requests' },
+};
+
+function countWords(text: string): number {
+  return text.trim() ? text.trim().split(/\s+/).length : 0;
 }
 
 export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
@@ -54,10 +77,17 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
               : data.reply.value_first)
         );
       } else {
-        const generated = await api.generateReply(id);
-        setReply(generated);
-        setSelectedVersion(generated.selected_version);
-        setEditedText(generated.value_first);
+        // If Hacker News, the platform bans AI drafts
+        if (data.lead.platform === 'hackernews' || data.lead.reply_policy === 'human_only') {
+          setReply(null);
+          setSelectedVersion('custom');
+          setEditedText('');
+        } else {
+          const generated = await api.generateReply(id);
+          setReply(generated);
+          setSelectedVersion(generated.selected_version);
+          setEditedText(generated.value_first);
+        }
       }
     } catch (err: any) {
       setPublishStatus({
@@ -93,7 +123,7 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
     if (selectedVersion === 'custom' && !editedText.trim()) {
       setPublishStatus({
         type: 'error',
-        message: 'Please write your reply before approving a custom draft.',
+        message: 'Please write your reply text before approving.',
       });
       return;
     }
@@ -102,12 +132,12 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
       setReply(updated);
       setPublishStatus({
         type: 'success',
-        message: 'Reply approved. Ready to copy or publish.',
+        message: 'Reply draft approved! You can now proceed to copy and mark for posting.',
       });
     } catch (err: any) {
       setPublishStatus({
         type: 'error',
-        message: err instanceof Error ? err.message : 'Approval failed.',
+        message: err instanceof Error ? err.message : 'Approval failed. Please review text rules.',
       });
     }
   };
@@ -119,22 +149,22 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
       if (res.success) {
         setPublishStatus({
           type: 'success',
-          message: res.message || 'Reply copied to clipboard. Once posted on the platform, click Confirm It Was Posted.',
+          message: res.message || 'Reply copied to clipboard and discussion link ready. Post on the platform, then click Confirm It Was Posted.',
         });
         if (reply) setReply({ ...reply, status: 'pending_manual_post' });
         await navigator.clipboard.writeText(editedText);
         setCopied(true);
-        setTimeout(() => setCopied(false), 2500);
+        setTimeout(() => setCopied(false), 3000);
       } else {
         setPublishStatus({
           type: 'error',
-          message: res.reason || 'Publishing check failed. Please review settings.',
+          message: res.reason || 'Publishing check prevented posting. Please inspect settings and rules.',
         });
       }
     } catch (err: any) {
       setPublishStatus({
         type: 'error',
-        message: err instanceof Error ? err.message : 'Could not proceed with posting.',
+        message: err instanceof Error ? err.message : 'Could not proceed with publishing.',
       });
     }
   };
@@ -146,13 +176,13 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
       if (res.success) {
         setPublishStatus({
           type: 'success',
-          message: res.message || 'Publication confirmed and recorded in history.',
+          message: res.message || 'Publication successfully confirmed and recorded in history.',
         });
         if (reply) setReply({ ...reply, status: 'published' });
       } else {
         setPublishStatus({
           type: 'error',
-          message: res.reason || 'Could not record confirmation. Please try again.',
+          message: res.reason || 'Could not record publication confirmation.',
         });
       }
     } catch (err: any) {
@@ -194,6 +224,11 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
   const th = lead?.thread_health;
   const isLocked = th?.commentable === false;
   const isCrowded = th?.crowded === true;
+  const isHN = lead?.platform === 'hackernews';
+  const isHumanOnly = lead?.reply_policy === 'human_only' || isHN;
+  const wordCount = countWords(editedText);
+  const maxWords = lead ? PLATFORM_MAX_WORDS[lead.platform] || 150 : 150;
+  const isOverWordLimit = maxWords > 0 && wordCount > maxWords;
 
   return (
     <div className="page-shell">
@@ -201,7 +236,7 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
         <div>
           <h1>Reply Studio</h1>
           <p>
-            Review and personalize helpful, value-first replies with transparent affiliation disclosures and human approval gates.
+            Review, personalize, and approve helpful value-first responses with ethical disclosures, automated linting, and platform safety gates.
           </p>
         </div>
       </div>
@@ -248,41 +283,45 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
             >
               {leads.map((l) => (
                 <option key={l.id} value={l.id}>
-                  [{l.score}/100] {l.community} - {l.title.slice(0, 48)}…
+                  [{l.score}/100] {l.platform} · {l.community} - {l.title.slice(0, 48)}…
                 </option>
               ))}
             </select>
           </div>
 
-          {reply && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
-              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>Workflow State:</span>
-              <span
-                className={`badge ${
-                  reply.status === 'published'
-                    ? 'badge-high'
-                    : reply.status === 'pending_manual_post'
-                    ? 'badge-amber'
-                    : reply.status === 'approved'
-                    ? 'badge-medium'
-                    : 'badge-low'
-                }`}
-              >
-                {reply.status === 'pending_manual_post' ? 'Awaiting Confirmation' : reply.status}
-              </span>
-            </div>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>Workflow State:</span>
+            <span
+              className={`badge ${
+                reply?.status === 'published'
+                  ? 'badge-high'
+                  : reply?.status === 'pending_manual_post'
+                  ? 'badge-amber'
+                  : reply?.status === 'approved'
+                  ? 'badge-medium'
+                  : 'badge-low'
+              }`}
+            >
+              {reply?.status === 'pending_manual_post'
+                ? 'Pending Manual Post'
+                : reply?.status === 'published'
+                ? 'Published'
+                : reply?.status === 'approved'
+                ? 'Approved'
+                : 'Draft'}
+            </span>
+          </div>
         </div>
       </section>
 
       {loading || !lead ? (
         <div className="panel" style={{ padding: 'var(--sp-12)', textAlign: 'center' }}>
           <LoaderCircle className="spin" size={24} style={{ margin: '0 auto var(--sp-2)', color: 'var(--primary)' }} />
-          <div>Synthesizing context and drafting response…</div>
+          <div>Synthesizing context and drafting compliant response…</div>
         </div>
       ) : (
         <section className="studio-grid">
-          {/* Left Column: Original Context */}
+          {/* Left Column: Context & Evidence */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
             <div className="card" style={{ padding: 'var(--sp-5)' }}>
               <div
@@ -303,6 +342,9 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
                       AI Scored
                     </span>
                   )}
+                  {lead.competitor_mentioned && (
+                    <span className="badge badge-amber">vs {lead.competitor_mentioned}</span>
+                  )}
                 </div>
 
                 <a
@@ -315,6 +357,7 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     gap: '4px',
+                    fontWeight: 600,
                   }}
                 >
                   <ExternalLink size={13} />
@@ -330,7 +373,7 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
                 Posted by <strong>{lead.author || 'Author'}</strong> in <strong>{lead.community}</strong> · {lead.published_at || 'Recent'}
               </div>
 
-              {/* Thread Health Bar */}
+              {/* Thread Health Pill */}
               {th && (
                 <div
                   style={{
@@ -352,7 +395,8 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
                       Archived / Locked on Platform
                     </span>
                   ) : (
-                    <span style={{ color: 'var(--success-text)', fontWeight: 600 }}>
+                    <span style={{ color: 'var(--success-text)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Check size={12} />
                       Open for Replies
                     </span>
                   )}
@@ -365,7 +409,7 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
 
                   {isCrowded && (
                     <span className="badge badge-amber" style={{ fontSize: '10px' }}>
-                      Crowded thread
+                      Crowded thread (&gt;80 replies)
                     </span>
                   )}
 
@@ -373,6 +417,41 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
                     <span style={{ color: 'var(--text-subtle)' }}>
                       {th.age_days}d old
                     </span>
+                  )}
+                </div>
+              )}
+
+              {/* Platform Policy Alert */}
+              {isHumanOnly && (
+                <div className="notice notice-warning" style={{ margin: '0 0 var(--sp-3) 0', padding: 'var(--sp-3)' }}>
+                  <ShieldAlert size={16} />
+                  <div>
+                    <strong>Platform Policy Notice</strong>
+                    <span>
+                      {isHN
+                        ? 'Hacker News rules ban generated or AI-edited comments (March 2026). Hand-crafted human replies only.'
+                        : 'This platform forbids automated bot drafts. Hand-craft your response or use this context for customer research.'}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Targeting specific comment */}
+              {reply?.target_kind === 'comment' && reply.target_author && (
+                <div
+                  style={{
+                    marginBottom: 'var(--sp-3)',
+                    padding: 'var(--sp-2) var(--sp-3)',
+                    background: 'var(--info-bg)',
+                    border: '1px solid var(--info-border)',
+                    borderRadius: 'var(--r-sm)',
+                    fontSize: 'var(--fs-2xs)',
+                    color: 'var(--info-text)',
+                  }}
+                >
+                  <strong>Targeting Comment by {reply.target_author}:</strong> &ldquo;{reply.target_text}&rdquo;
+                  {reply.target_reason && (
+                    <div style={{ marginTop: '2px', opacity: 0.85 }}>Reason: {reply.target_reason}</div>
                   )}
                 </div>
               )}
@@ -396,12 +475,12 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
 
             {/* Extracted Problem & Product Angle */}
             <div className="card" style={{ padding: 'var(--sp-5)' }}>
-              <h3 className="section-title">Identified Problem & Product Fit</h3>
+              <h3 className="section-title">Customer Problem & Product Value Match</h3>
               <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-main)', marginBottom: 'var(--sp-2)' }}>
                 {lead.customer_problem}
               </div>
               <div className="fit-callout">
-                <strong>Why your product solves this:</strong> {lead.product_fit_explanation}
+                <strong>Why your solution fits:</strong> {lead.product_fit_explanation}
               </div>
             </div>
           </div>
@@ -409,23 +488,33 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
           {/* Right Column: Reply Composition */}
           <div className="card" style={{ padding: 'var(--sp-5)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
             <div>
-              <h3 className="section-title">Draft Strategy</h3>
-              <div className="version-toggle-bar">
-                <button
-                  type="button"
-                  className={`version-tab ${selectedVersion === 'value_first' ? 'active' : ''}`}
-                  onClick={() => handleSelectVersion('value_first')}
-                >
-                  Value-First (Helpful Advice)
-                </button>
-                <button
-                  type="button"
-                  className={`version-tab ${selectedVersion === 'product_aware' ? 'active' : ''}`}
-                  onClick={() => handleSelectVersion('product_aware')}
-                >
-                  Product-Aware (With Disclosure)
-                </button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-2)' }}>
+                <h3 className="section-title" style={{ margin: 0 }}>Reply Strategy</h3>
+                {reply?.pitch_level !== undefined && (
+                  <span className="badge badge-low" title={PITCH_LABELS[reply.pitch_level]?.desc}>
+                    {PITCH_LABELS[reply.pitch_level]?.label || `Pitch Level ${reply.pitch_level}`}
+                  </span>
+                )}
               </div>
+
+              {!isHumanOnly && (
+                <div className="version-toggle-bar">
+                  <button
+                    type="button"
+                    className={`version-tab ${selectedVersion === 'value_first' ? 'active' : ''}`}
+                    onClick={() => handleSelectVersion('value_first')}
+                  >
+                    Value-First (Helpful Advice)
+                  </button>
+                  <button
+                    type="button"
+                    className={`version-tab ${selectedVersion === 'product_aware' ? 'active' : ''}`}
+                    onClick={() => handleSelectVersion('product_aware')}
+                  >
+                    Product-Aware (With Disclosure)
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Warning if thread is locked */}
@@ -433,20 +522,67 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
               <div className="notice notice-warning" style={{ margin: 0 }}>
                 <AlertTriangle size={15} />
                 <span>
-                  This thread is locked or archived. You can copy the reply for notes or related discussions, but direct posting will be rejected by the platform.
+                  This thread is locked or archived. You can copy the reply for notes or follow-ups, but replies cannot be submitted to this URL.
                 </span>
               </div>
             )}
 
+            {/* Linter warnings / issues if any */}
+            {reply?.needs_human_edit && (
+              <div className="notice notice-warning" style={{ margin: 0 }}>
+                <AlertCircle size={15} />
+                <div>
+                  <strong>Human Polish Recommended</strong>
+                  <span>The AI draft flagged rule exceptions. Please review and adjust the text before approving.</span>
+                </div>
+              </div>
+            )}
+
+            {reply?.lint && reply.lint.issues && reply.lint.issues.length > 0 && (
+              <div
+                style={{
+                  padding: 'var(--sp-2) var(--sp-3)',
+                  background: 'var(--warning-bg)',
+                  border: '1px solid var(--warning-border)',
+                  borderRadius: 'var(--r-sm)',
+                  fontSize: 'var(--fs-2xs)',
+                  color: 'var(--warning-text)',
+                }}
+              >
+                <strong>Linter Observations:</strong>
+                <ul style={{ paddingLeft: 'var(--sp-4)', marginTop: '2px' }}>
+                  {reply.lint.issues.map((iss: string, idx: number) => (
+                    <li key={idx}>{iss}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="form-group" style={{ flex: 1 }}>
-              <label htmlFor="reply-editor-textarea" className="label">
-                Response Draft (Fully Editable)
-              </label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label htmlFor="reply-editor-textarea" className="label">
+                  Response Draft (Fully Editable)
+                </label>
+                <span
+                  style={{
+                    fontSize: 'var(--fs-2xs)',
+                    color: isOverWordLimit ? 'var(--danger-text)' : 'var(--text-subtle)',
+                    fontWeight: 600,
+                  }}
+                >
+                  {wordCount} words {maxWords > 0 ? `/ ${maxWords} max` : ''}
+                </span>
+              </div>
               <textarea
                 id="reply-editor-textarea"
                 className="textarea"
-                rows={10}
-                style={{ minHeight: '220px', lineHeight: '1.6' }}
+                rows={9}
+                style={{ minHeight: '200px', lineHeight: '1.6' }}
+                placeholder={
+                  isHumanOnly
+                    ? 'Write your original helpful response here. Platform policy requires manual, genuine human text.'
+                    : 'Craft your response here…'
+                }
                 value={editedText}
                 onChange={(e) => {
                   setEditedText(e.target.value);
@@ -455,7 +591,8 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
               />
             </div>
 
-            {reply?.affiliation_disclosure && (
+            {/* Ethical Disclosure Preview */}
+            {reply?.affiliation_disclosure && selectedVersion === 'product_aware' && (
               <div
                 style={{
                   padding: 'var(--sp-2) var(--sp-3)',
@@ -475,6 +612,7 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
               </div>
             )}
 
+            {/* Workflow Action Bar */}
             <div
               style={{
                 display: 'flex',
@@ -492,7 +630,11 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
               </button>
 
               <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
-                <button className="btn btn-secondary btn-sm" onClick={handleApprove}>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleApprove}
+                  disabled={!editedText.trim()}
+                >
                   <CheckCircle size={14} />
                   <span>Approve Draft</span>
                 </button>
@@ -503,7 +645,11 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
                     <span>Confirm It Was Posted</span>
                   </button>
                 ) : (
-                  <button className="btn btn-primary btn-sm" onClick={handlePublish}>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={handlePublish}
+                    disabled={!editedText.trim()}
+                  >
                     <Send size={14} />
                     <span>Copy & Mark for Posting</span>
                   </button>
@@ -516,3 +662,5 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
     </div>
   );
 };
+
+export default ReplyStudioView;

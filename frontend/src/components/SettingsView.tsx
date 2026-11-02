@@ -6,6 +6,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   Cpu,
+  ShieldCheck,
+  KeyRound,
 } from 'lucide-react';
 import type { PostingSettings, LLMSettings, MCPSettings } from '../types';
 import { api } from '../api';
@@ -15,6 +17,10 @@ export const SettingsView: React.FC = () => {
     mode: 'manual',
     daily_limit: 5,
     min_interval_seconds: 600,
+    interval_jitter: 0.3,
+    max_mention_ratio: 0.1,
+    require_account_health: true,
+    require_rules_ack: true,
     allowed_communities: [
       'r/startups',
       'r/SaaS',
@@ -62,6 +68,10 @@ export const SettingsView: React.FC = () => {
         setPostingSettings((prev) => ({
           ...prev,
           ...data.posting_settings,
+          interval_jitter: data.posting_settings.interval_jitter ?? 0.3,
+          max_mention_ratio: data.posting_settings.max_mention_ratio ?? 0.1,
+          require_account_health: data.posting_settings.require_account_health ?? true,
+          require_rules_ack: data.posting_settings.require_rules_ack ?? true,
           reddit_password: '',
           reddit_client_secret: '',
           github_token: '',
@@ -110,7 +120,7 @@ export const SettingsView: React.FC = () => {
         mcp_settings: mcpSettings,
       });
 
-      setSavedMessage('Settings saved successfully. Changes applied to active engine.');
+      setSavedMessage('Platform settings saved successfully. Changes applied to active engine.');
       await loadSettings();
       setTimeout(() => setSavedMessage(null), 3500);
     } catch (err: any) {
@@ -126,7 +136,7 @@ export const SettingsView: React.FC = () => {
         <div>
           <h1>Settings & Safety Controls</h1>
           <p>
-            Configure LLM providers, community whitelists, rate limits, platform credentials, and publishing safety gates.
+            Configure AI providers, community safety boundaries, rate limiting, platform credentials, and publishing guardrails.
           </p>
         </div>
       </div>
@@ -148,7 +158,7 @@ export const SettingsView: React.FC = () => {
       )}
 
       <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-6)' }}>
-        {/* Emergency Stop Switch */}
+        {/* Master Emergency Stop Switch */}
         <section
           className="card"
           style={{
@@ -175,7 +185,7 @@ export const SettingsView: React.FC = () => {
                 Master Emergency Stop
               </div>
               <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Instantly halts and locks all community discovery, reply drafting, and posting automation.
+                Instantly halts and locks all community discovery, reply drafting, and posting operations across the system.
               </div>
             </div>
           </div>
@@ -209,7 +219,7 @@ export const SettingsView: React.FC = () => {
           <div className="panel-header" style={{ flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
             <div>
               <h2>AI Model Provider</h2>
-              <p>Configure which LLM powers profile extraction, search planning, and personalized reply generation.</p>
+              <p>Configure which LLM powers profile extraction, search query planning, and personalized reply generation.</p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
               {llmSettings.configured ? (
@@ -218,11 +228,11 @@ export const SettingsView: React.FC = () => {
                   AI Ready & Configured
                 </span>
               ) : llmSettings.provider === 'mock' ? (
-                <span className="badge badge-low">Mock Engine (Test Mode)</span>
+                <span className="badge badge-low">Local Heuristic Mock (Test Mode)</span>
               ) : (
                 <span className="badge badge-amber" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <AlertTriangle size={13} />
-                  Key Required for Live AI
+                  API Key Required
                 </span>
               )}
             </div>
@@ -259,7 +269,7 @@ export const SettingsView: React.FC = () => {
                 <option value="anthropic">Anthropic (claude-sonnet-5-5, claude-3-7-sonnet)</option>
                 <option value="groq">Groq (llama-3.3-70b-versatile, llama-3.1-8b)</option>
                 <option value="deepseek">DeepSeek (deepseek-chat, deepseek-reasoner)</option>
-                <option value="mock">Local Heuristic Mock (Testing Only)</option>
+                <option value="mock">Local Heuristic Mock (Offline Testing)</option>
               </select>
             </div>
 
@@ -322,16 +332,6 @@ export const SettingsView: React.FC = () => {
                   ? '•••••••••••••••• (Leave blank to keep current key)'
                   : llmSettings.provider === 'mock'
                   ? 'Not needed for mock mode'
-                  : llmSettings.provider === 'gemini'
-                  ? 'e.g. AIzaSy... (GEMINI_API_KEY or GOOGLE_API_KEY)'
-                  : llmSettings.provider === 'openai'
-                  ? 'e.g. sk-proj-... (OPENAI_API_KEY)'
-                  : llmSettings.provider === 'anthropic'
-                  ? 'e.g. sk-ant-... (ANTHROPIC_API_KEY)'
-                  : llmSettings.provider === 'groq'
-                  ? 'e.g. gsk_... (GROQ_API_KEY)'
-                  : llmSettings.provider === 'deepseek'
-                  ? 'e.g. sk-... (DEEPSEEK_API_KEY)'
                   : 'Enter API key…'
               }
               value={llmSettings.api_key || ''}
@@ -339,17 +339,20 @@ export const SettingsView: React.FC = () => {
               disabled={llmSettings.provider === 'mock'}
             />
             <div className="helper-text" style={{ marginTop: '4px' }}>
-              Stored securely in the local SQLite database. Never exposed in API responses or shared externally.
+              Stored securely in local SQLite. Re-applies immediately without needing a server restart.
             </div>
           </div>
         </section>
 
-        {/* Publishing Safety & Whitelisting */}
+        {/* Publishing Safety Gates & Anti-Spam Controls */}
         <section className="panel">
           <div className="panel-header">
             <div>
-              <h2>Publishing Controls & Safety Rules</h2>
-              <p>Enforce strict community boundaries and rate limiting to maintain account standing and community trust.</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                <ShieldCheck size={18} style={{ color: 'var(--primary)' }} />
+                <h2>Publishing Controls & Safety Gates</h2>
+              </div>
+              <p>Enforce strict community boundaries, randomized intervals, and promotional ratios to prevent automated spam penalties.</p>
             </div>
           </div>
 
@@ -366,7 +369,7 @@ export const SettingsView: React.FC = () => {
                   setPostingSettings({ ...postingSettings, mode: e.target.value as any })
                 }
               >
-                <option value="draft">Draft Mode Only (Copy & View Only)</option>
+                <option value="draft">Draft Mode Only (Read & Copy Only)</option>
                 <option value="manual">Manual Approval (Recommended Default)</option>
                 <option value="automatic">Controlled Automatic Posting (API)</option>
               </select>
@@ -386,7 +389,7 @@ export const SettingsView: React.FC = () => {
                 onChange={(e) =>
                   setPostingSettings({
                     ...postingSettings,
-                    daily_limit: parseInt(e.target.value) || 5,
+                    daily_limit: parseInt(e.target.value, 10) || 5,
                   })
                 }
               />
@@ -406,11 +409,106 @@ export const SettingsView: React.FC = () => {
                 onChange={(e) =>
                   setPostingSettings({
                     ...postingSettings,
-                    min_interval_seconds: parseInt(e.target.value) || 600,
+                    min_interval_seconds: parseInt(e.target.value, 10) || 600,
                   })
                 }
               />
             </div>
+          </div>
+
+          {/* Granular Anti-Spam Safety Settings */}
+          <div className="form-grid-2" style={{ marginBottom: 'var(--sp-4)' }}>
+            <div className="form-group">
+              <label htmlFor="settings-interval-jitter" className="label">
+                Interval Jitter Fraction ({Math.round((postingSettings.interval_jitter ?? 0.3) * 100)}%)
+              </label>
+              <input
+                id="settings-interval-jitter"
+                type="range"
+                min="0"
+                max="0.5"
+                step="0.05"
+                value={postingSettings.interval_jitter ?? 0.3}
+                onChange={(e) =>
+                  setPostingSettings({
+                    ...postingSettings,
+                    interval_jitter: parseFloat(e.target.value),
+                  })
+                }
+                style={{ width: '100%', cursor: 'pointer' }}
+              />
+              <span className="helper-text">
+                Adds random extra delay on top of minimum interval to avoid predictable bot timing.
+              </span>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="settings-max-mention" className="label">
+                Max Product Mention Ratio ({Math.round((postingSettings.max_mention_ratio ?? 0.1) * 100)}%)
+              </label>
+              <input
+                id="settings-max-mention"
+                type="range"
+                min="0.05"
+                max="0.3"
+                step="0.05"
+                value={postingSettings.max_mention_ratio ?? 0.1}
+                onChange={(e) =>
+                  setPostingSettings({
+                    ...postingSettings,
+                    max_mention_ratio: parseFloat(e.target.value),
+                  })
+                }
+                style={{ width: '100%', cursor: 'pointer' }}
+              />
+              <span className="helper-text">
+                Safety ceiling: at most this fraction of recent comments may mention the product (default: 10%).
+              </span>
+            </div>
+          </div>
+
+          <div className="form-grid-2" style={{ marginBottom: 'var(--sp-4)' }}>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--sp-2)',
+                cursor: 'pointer',
+                fontSize: 'var(--fs-sm)',
+                fontWeight: 500,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={postingSettings.require_account_health ?? true}
+                onChange={(e) =>
+                  setPostingSettings({ ...postingSettings, require_account_health: e.target.checked })
+                }
+                style={{ width: '16px', height: '16px' }}
+              />
+              <span>Enforce account health requirements before allowing product-aware replies</span>
+            </label>
+
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--sp-2)',
+                cursor: 'pointer',
+                fontSize: 'var(--fs-sm)',
+                fontWeight: 500,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={postingSettings.require_rules_ack ?? true}
+                onChange={(e) =>
+                  setPostingSettings({ ...postingSettings, require_rules_ack: e.target.checked })
+                }
+                style={{ width: '16px', height: '16px' }}
+              />
+              <span>Require recorded community rules acknowledgement before publishing</span>
+            </label>
           </div>
 
           <div className="form-group">
@@ -434,7 +532,7 @@ export const SettingsView: React.FC = () => {
               }
             />
             <div className="helper-text" style={{ marginTop: '4px' }}>
-              The agent strictly refuses to post to any Reddit community not explicitly listed here.
+              The publisher strictly refuses to post to any Reddit community not explicitly listed here.
             </div>
           </div>
         </section>
@@ -443,8 +541,11 @@ export const SettingsView: React.FC = () => {
         <section className="panel">
           <div className="panel-header">
             <div>
-              <h2>Platform API Credentials (Optional)</h2>
-              <p>Configure official credentials to enable direct API posting for Reddit and GitHub. If omitted, replies use clipboard copy mode.</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                <KeyRound size={18} style={{ color: 'var(--primary)' }} />
+                <h2>Platform API Credentials (Optional)</h2>
+              </div>
+              <p>Configure credentials for direct API posting on Reddit and GitHub. If omitted, responses default to safe clipboard copy mode.</p>
             </div>
           </div>
 
@@ -557,8 +658,8 @@ export const SettingsView: React.FC = () => {
                 <h2>Model Context Protocol (MCP) & Host AI Controls</h2>
               </div>
               <p>
-                Configure how Agent Reach connects to Cursor, Claude Code, Antigravity, and VS Code.
-                Choose whether your AI assistant qualifies leads directly in chat (no external API keys needed) or triggers automated background batching.
+                Configure how AgentReach connects to IDEs (Cursor, Claude Code, Antigravity, VS Code).
+                Choose whether your AI assistant reasons directly in chat without external keys or triggers background batching.
               </p>
             </div>
           </div>
@@ -621,7 +722,7 @@ export const SettingsView: React.FC = () => {
                     <span>Built-in Autonomous Engine</span>
                   </div>
                   <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', paddingLeft: 'var(--sp-5)' }}>
-                    Agent Reach executes query planning, scraping, heuristic scoring, and SQLite persistence automatically in a single background tool call.
+                    AgentReach executes query planning, scraping, heuristic scoring, and SQLite persistence automatically in a single background tool call.
                   </span>
                 </label>
               </div>
@@ -647,7 +748,7 @@ export const SettingsView: React.FC = () => {
                   <option value="markdown">Markdown Report (.md)</option>
                   <option value="json">Structured JSON (.json)</option>
                 </select>
-                <span className="form-hint">Used when AI exports customer discovery findings.</span>
+                <span className="helper-text">Used when AI exports customer discovery findings.</span>
               </div>
 
               <div className="form-group">
@@ -668,7 +769,7 @@ export const SettingsView: React.FC = () => {
                     })
                   }
                 />
-                <span className="form-hint">Filter threshold for high-intent qualified leads.</span>
+                <span className="helper-text">Filter threshold for high-intent qualified leads.</span>
               </div>
 
               <div className="form-group">
@@ -682,7 +783,7 @@ export const SettingsView: React.FC = () => {
                   value={mcpSettings.default_export_path}
                   onChange={(e) => setMcpSettings({ ...mcpSettings, default_export_path: e.target.value })}
                 />
-                <span className="form-hint">Where .md and .json files are saved on disk.</span>
+                <span className="helper-text">Where .md and .json files are saved on disk.</span>
               </div>
             </div>
 
@@ -742,3 +843,5 @@ export const SettingsView: React.FC = () => {
     </div>
   );
 };
+
+export default SettingsView;

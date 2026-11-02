@@ -32,7 +32,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   const priorityLeads = leads
     .filter((lead) => lead.classification === 'high_potential' || lead.score >= 75)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 4);
+    .slice(0, 5);
 
   const sourceCount = new Set(leads.map((lead) => lead.platform)).size;
   const qualified = (leadCounts.high_potential || 0) + (leadCounts.relevant || 0);
@@ -56,6 +56,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
             className="btn btn-primary"
             onClick={onLaunchCampaign}
             disabled={!profile?.confirmed}
+            title={!profile?.confirmed ? 'Confirm business profile before launching discovery' : undefined}
           >
             <Compass size={15} />
             <span>Launch discovery</span>
@@ -175,7 +176,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                     </div>
                     <h3>{lead.title}</h3>
                     <p>{lead.customer_problem}</p>
-                    <div className="evidence-line">“{lead.excerpt}”</div>
+                    <div className="evidence-line">&ldquo;{lead.excerpt}&rdquo;</div>
                   </div>
 
                   <div className="priority-actions">
@@ -281,3 +282,5 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
     </div>
   );
 };
+
+export default OverviewView;
