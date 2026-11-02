@@ -1,0 +1,58 @@
+# The owner's personal banned word list. Edit freely.
+# Format: tier|term   (tier is hard or avoid, term is lowercase)
+# hard  = never allowed in a reply. The linter fails the draft.
+# avoid = common words. At most two avoid words in total per reply (this file plus banned-ai-tells.txt).
+#         Move a word to hard if you want it gone completely.
+# Lines starting with # are comments. Blank lines are ignored.
+
+hard|massive
+hard|delve
+hard|embark
+hard|esteemed
+hard|shed light
+hard|craft
+hard|crafting
+hard|crafted
+hard|imagine
+hard|unlock
+hard|discover
+hard|skyrocket
+hard|skyrocketing
+hard|abyss
+hard|not alone
+hard|revolutionize
+hard|disruptive
+hard|utilize
+hard|utilizing
+hard|illuminate
+hard|unveil
+hard|pivotal
+hard|intricate
+hard|elucidate
+hard|realm
+hard|however
+hard|harness
+hard|exciting
+hard|groundbreaking
+hard|remarkable
+hard|it remains to be seen
+hard|glimpse into
+hard|stark
+hard|testament
+hard|in summary
+hard|in conclusion
+hard|opened up
+hard|powerful
+hard|dive deeper
+hard|literally
+hard|really
+hard|very
+hard|probably
+hard|basically
+hard|maybe
+
+avoid|can
+avoid|may
+avoid|just
+avoid|that
+avoid|could

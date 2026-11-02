@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint and types
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            constraints.txt
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Ruff
+        run: ruff check agent_reach/discovery agent_reach/mcp scripts tests
+      - name: Mypy
+        run: mypy agent_reach/discovery agent_reach/mcp
+
+  skills:
+    name: Skill pack checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: python -m pip install -e .
+      - name: Validate skills, examples and manifest
+        run: python scripts/validate_skills.py
+      - name: Tool reference matches the server
+        run: python scripts/gen_tool_reference.py --check
+
+  test:
+    name: Tests (py${{ matrix.python }}, mcp ${{ matrix.mcp }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12", "3.13"]
+        mcp: ["1.x", "2.x"]
+        include:
+          - mcp: "1.x"
+            mcp_spec: "mcp>=1.27,<2"
+          - mcp: "2.x"
+            mcp_spec: "mcp>=2,<3"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install "${{ matrix.mcp_spec }}"
+      - name: Show versions
+        run: python -m pip list | grep -i -E "^(mcp|pydantic|requests|beautifulsoup4) "
+      - name: Pytest
+        run: python -m pytest tests --timeout=120
+
+  package:
+    name: Wheel clean-install test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [lint, skills, test]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: |
+          python -m pip install build
+          python -m build
+      - name: Install the wheel in a clean environment and run it
+        run: |
+          python -m venv /tmp/clean
+          /tmp/clean/bin/pip install dist/*.whl
+          cd /tmp
+          export AGENT_REACH_DISCOVERY_DB=/tmp/clean-test.db
+          /tmp/clean/bin/agent-reach discovery skills list | grep -q customer-discovery
+          /tmp/clean/bin/agent-reach discovery lint --text "Great question, you should delve into this." | grep -q '"passed": false'
+          /tmp/clean/bin/python - <<'PY'
+          import asyncio
+          from agent_reach.mcp import server
+          tools = asyncio.run(server.mcp.list_tools())
+          assert len(tools) >= 30, len(tools)
+          print("tools:", len(tools))
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  docker:
+    name: Docker build and MCP handshake
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [lint, skills, test]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build image
+        run: docker build -t agent-reach:ci .
+      - name: MCP initialize over stdio
+        run: |
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+            | timeout 30 docker run -i --rm agent-reach:ci mcp | head -c 400 | grep -q '"serverInfo"'
+
+  workflows:
+    name: Workflow files
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest -color

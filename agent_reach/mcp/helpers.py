@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 import datetime
+import importlib.util
 import json
-import os
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import webbrowser
 from pathlib import Path
@@ -34,7 +35,7 @@ def _safe_cell(val: Any) -> str:
     if val is None:
         return ""
     text = str(val).strip()
-    if text and text[0] in ("=", "+", "-", "@"):
+    if text and (text[0] in ("=", "+", "@") or (text[0] == "-" and not text[1:2].isdigit())):
         return f"'{text}"
     return text.replace("|", "\\|").replace("\n", " ")
 
@@ -46,14 +47,14 @@ def generate_markdown_report(
     """Generate a clean, structured Markdown customer discovery report."""
     now_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     lines: List[str] = [
-        "# 🎯 Agent Reach — Customer Discovery Report",
+        "# Agent Reach: Customer Discovery Report",
         f"\n*Generated on {now_str}*",
         "",
     ]
 
     if profile:
         lines.extend([
-            "## 🏢 Target Business Profile",
+            "## Target Business Profile",
             f"- **Product / Company:** {profile.name}",
             f"- **Description:** {profile.description or profile.main_product_or_service or 'N/A'}",
             f"- **Ideal Customer Profile (ICP):** {profile.icp or ', '.join(profile.target_roles) or 'All relevant buyers'}",
@@ -62,16 +63,16 @@ def generate_markdown_report(
         ])
 
     total_leads = len(leads)
-    high_potential = sum(1 for l in leads if getattr(l.classification, "value", l.classification) == "high_potential")
-    avg_score = (sum(l.score for l in leads) / total_leads) if total_leads > 0 else 0
+    high_potential = sum(1 for lead in leads if getattr(lead.classification, "value", lead.classification) == "high_potential")
+    avg_score = (sum(lead.score for lead in leads) / total_leads) if total_leads > 0 else 0
 
     lines.extend([
-        "## 📊 Executive Discovery Summary",
+        "## Summary",
         f"- **Total Qualified Leads:** {total_leads}",
         f"- **High-Potential Leads:** {high_potential}",
         f"- **Average Lead Score:** {avg_score:.1f}/100",
         "",
-        "## 🏆 Top Discovered Leads",
+        "## Top Leads",
         "",
         "| Rank | Title | Score | Class | Platform | Community | Intent | Urgency | Thread Link |",
         "| :--- | :---- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |",
@@ -91,7 +92,7 @@ def generate_markdown_report(
             url = f"[{platform}]({lead.url})" if lead.url else "-"
             lines.append(f"| {idx} | {title} | {score} | {cls_name} | {platform} | {community} | {intent} | {urgency} | {url} |")
 
-    lines.extend(["", "## 🔍 Detailed Lead Analysis", ""])
+    lines.extend(["", "## Lead Details", ""])
     for idx, lead in enumerate(leads, 1):
         lines.extend([
             f"### #{idx}: {_safe_cell(lead.title)}",
@@ -115,7 +116,15 @@ def export_results_files(
     formats: str = "both",
     min_score: int = 0,
 ) -> Dict[str, str]:
-    """Export qualified leads into markdown, json, or both."""
+    """Export qualified leads into markdown, json, or both.
+
+    The folder must sit under the current directory, the home folder or the system temp folder.
+    """
+    resolved = output_dir.expanduser().resolve()
+    roots = [Path.cwd().resolve(), Path.home().resolve(), Path(tempfile.gettempdir()).resolve()]
+    if not any(resolved == r or r in resolved.parents for r in roots):
+        raise ValueError(f"Choose a folder under {roots[0]} or {roots[1]}.")
+    output_dir = resolved
     output_dir.mkdir(parents=True, exist_ok=True)
     leads = storage.list_leads(min_score=min_score, limit=500)
     profile = storage.get_latest_business_profile()
@@ -131,7 +140,7 @@ def export_results_files(
 
     if chosen in ("json", "both"):
         json_path = output_dir / "customer_discovery_leads.json"
-        leads_data = [l.model_dump() for l in leads]
+        leads_data = [lead.model_dump() for lead in leads]
         json_path.write_text(json.dumps(leads_data, indent=2, ensure_ascii=False), encoding="utf-8")
         exported["json"] = str(json_path.resolve())
 
@@ -182,6 +191,12 @@ def ensure_dashboard_running(
 ) -> Dict[str, Any]:
     """Check if the FastAPI dashboard is running, start it in background if not, and optionally open browser."""
     url = f"http://{host}:{port}"
+
+    if importlib.util.find_spec("agent_reach.server") is None:
+        return {
+            "status": "unavailable",
+            "message": "The dashboard module is not installed in this build. Use the CLI or the MCP tools.",
+        }
 
     if is_port_in_use(port, host):
         if open_browser:

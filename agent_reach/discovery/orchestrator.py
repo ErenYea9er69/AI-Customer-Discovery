@@ -7,17 +7,27 @@ import logging
 import threading
 import time
 from collections import Counter
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
 
+from agent_reach.discovery import thread_comments, voice
+from agent_reach.discovery.accounts import AccountService
 from agent_reach.discovery.analytics import DiscoveryAnalytics
 from agent_reach.discovery.business_engine import BusinessEngine
 from agent_reach.discovery.harvester import CommunityHarvester
 from agent_reach.discovery.llm_client import LLMClient
-from agent_reach.discovery.models import BusinessProfile, Campaign
+from agent_reach.discovery.models import (
+    BusinessProfile,
+    Campaign,
+    GeneratedReply,
+    LeadQualification,
+    ReplyPreferences,
+    ReplyTarget,
+)
+from agent_reach.discovery.platform_policy import can_draft
 from agent_reach.discovery.publisher import CommunityPublisher
 from agent_reach.discovery.qualifier import LeadQualifier
-from agent_reach.discovery.reply_generator import ReplyGenerator
+from agent_reach.discovery.reply_generator import ReplyGenerationError, ReplyGenerator
 from agent_reach.discovery.search_planner import DEFAULT_PLATFORMS, VALID_PLATFORMS, SearchPlanner
 from agent_reach.discovery.storage import DiscoveryStorage
 
@@ -41,7 +51,7 @@ class DiscoveryOrchestrator:
         self.active_tasks: Dict[str, threading.Event] = {}
         self._launch_lock = threading.Lock()
         self.harvester = CommunityHarvester(self.storage)
-        self.publisher = CommunityPublisher(self.storage)
+        self.accounts = AccountService(self.storage)
         self.analytics = DiscoveryAnalytics(self.storage)
         self.reload_llm()
 
@@ -56,6 +66,136 @@ class DiscoveryOrchestrator:
         self.business_engine = BusinessEngine(self.llm)
         self.qualifier = LeadQualifier(self.llm)
         self.reply_generator = ReplyGenerator(self.llm)
+
+    # ── Reply preferences and voice ──
+
+    def get_prefs(self) -> ReplyPreferences:
+        raw = self.storage.get_setting("reply_preferences", {}) or {}
+        try:
+            return ReplyPreferences.model_validate(raw)
+        except Exception:
+            return ReplyPreferences()
+
+    def save_prefs(self, prefs: ReplyPreferences) -> ReplyPreferences:
+        prefs.updated_at = time.time()
+        self.storage.set_setting("reply_preferences", prefs.model_dump())
+        return prefs
+
+    def set_voice_samples(self, samples: List[str], append: bool = False) -> ReplyPreferences:
+        """Store the owner's own comments and measure their style."""
+        prefs = self.get_prefs()
+        incoming = [voice.normalize_text(s) for s in samples if s and s.strip()]
+        merged = (prefs.voice_samples + incoming) if append else incoming
+        # Keep the newest 60 distinct samples.
+        merged = list(dict.fromkeys(merged))[-60:]
+        prefs.voice_samples = merged
+        prefs.voice_card = voice.analyze_samples(merged) if merged else {}
+        return self.save_prefs(prefs)
+
+    def import_voice_from_account(self, platform: str, handle: str, limit: int = 40) -> Dict[str, object]:
+        samples = self.accounts.import_voice_samples(platform, handle, limit)
+        if not samples:
+            return {"imported": 0, "note": "No usable public comments found. Paste samples by hand."}
+        prefs = self.set_voice_samples(samples, append=True)
+        return {"imported": len(samples), "total_samples": len(prefs.voice_samples), "voice_card": prefs.voice_card}
+
+    def publisher_for(self, profile: Optional[BusinessProfile] = None) -> CommunityPublisher:
+        profile = profile or self.storage.get_latest_business_profile()
+        return CommunityPublisher(self.storage, profile=profile, prefs=self.get_prefs())
+
+    @property
+    def publisher(self) -> CommunityPublisher:
+        return self.publisher_for()
+
+    # ── Drafting ──
+
+    def _previous_texts(self, limit: int = 20) -> List[str]:
+        out: List[str] = []
+        for r in self.storage.list_replies(limit=limit):
+            text = r.edited_reply or (r.product_aware if r.selected_version == "product_aware" else r.value_first)
+            if text:
+                out.append(text)
+            if r.product_aware and r.product_aware not in out:
+                out.append(r.product_aware)
+        return out
+
+    def choose_target(
+        self,
+        lead: LeadQualification,
+        profile: BusinessProfile,
+        mode: str = "auto",
+        comment_id: str = "",
+    ) -> Tuple[Optional[ReplyTarget], List[ReplyTarget], List[str]]:
+        """Read the thread's comments and pick where the reply goes.
+
+        mode: "auto" takes the best scored target, "post" answers the post, "comment" needs `comment_id`
+        or takes the best comment. Returns (chosen, candidates, warnings).
+        """
+        if mode == "post":
+            return None, [], []
+        post, comments, warnings = thread_comments.fetch_comments(lead.url)
+        if not post and not comments:
+            return None, [], warnings
+        ranked = thread_comments.rank_targets(post, comments, profile)
+        if comment_id:
+            pick = next((t for t in ranked if t.target_comment_id == comment_id), None)
+            if pick is None:
+                match = next((c for c in comments if str(c.get("id")) == comment_id), None)
+                if match:
+                    pick = ReplyTarget(
+                        target_kind="comment", target_comment_id=comment_id,
+                        target_author=match.get("author") or "", target_text=(match.get("body") or "")[:300],
+                        reason="Chosen by the owner.",
+                    )
+            return pick, ranked, warnings
+        if mode == "comment":
+            comment_targets = [t for t in ranked if t.target_kind == "comment"]
+            return (comment_targets[0] if comment_targets else None), ranked, warnings
+        return (ranked[0] if ranked else None), ranked, warnings
+
+    def draft_for_lead(
+        self,
+        lead: LeadQualification,
+        profile: Optional[BusinessProfile] = None,
+        *,
+        target_mode: str = "auto",
+        comment_id: str = "",
+        read_thread: bool = True,
+    ) -> GeneratedReply:
+        """Draft replies for one lead and save them. Raises ReplyGenerationError when drafting is not allowed."""
+        profile = profile or self.storage.get_latest_business_profile()
+        if profile is None:
+            raise ValueError("No business profile found.")
+        if not can_draft(lead.platform):
+            raise ReplyGenerationError(f"{lead.platform} does not allow drafted replies. Use the thread for research.")
+        prefs = self.get_prefs()
+        health = self.accounts.health(lead.platform, product_name=profile.name)
+        max_level = health.max_pitch_level if health.known else None
+        target = None
+        if read_thread or comment_id:
+            target, _, _ = self.choose_target(lead, profile, target_mode, comment_id)
+        reply = self.reply_generator.generate_replies(
+            lead, profile, target=target, prefs=prefs, max_pitch_level=max_level,
+            previous=self._previous_texts(),
+        )
+        self.storage.save_reply(reply)
+        return reply
+
+    def approve_reply(
+        self, reply_id: str, edited_text: Optional[str] = None, selected_version: Optional[str] = None,
+        force: bool = False,
+    ) -> GeneratedReply:
+        reply = self.storage.get_reply(reply_id)
+        if reply is None:
+            raise KeyError(f"No reply {reply_id}.")
+        profile = self.storage.get_latest_business_profile()
+        previous = [t for t in self._previous_texts() if t not in (reply.value_first, reply.product_aware)]
+        self.reply_generator.approve_reply(
+            reply, edited_text, selected_version, profile=profile, prefs=self.get_prefs(),
+            previous=previous, force=force,
+        )
+        self.storage.save_reply(reply)
+        return reply
 
     # ── Campaign ──
 
@@ -75,6 +215,7 @@ class DiscoveryOrchestrator:
         max_leads: int = 15,
         progress_callback: Optional[Callable[[str, int], None]] = None,
         campaign_id: Optional[str] = None,
+        communities: Optional[List[str]] = None,
     ) -> Campaign:
         profile = self.storage.get_latest_business_profile()
         if not profile:
@@ -100,7 +241,7 @@ class DiscoveryOrchestrator:
                 progress_callback(step, pct)
 
         note("Planning search queries", 15)
-        queries = SearchPlanner(self.llm).plan_queries(profile, chosen)
+        queries = SearchPlanner(self.llm).plan_queries(profile, chosen, communities)
         campaign.queries = queries
         note(f"Planned {len(queries)} queries. Searching...", 30)
 
@@ -132,11 +273,17 @@ class DiscoveryOrchestrator:
                 qualified += 1
                 high += lead.classification == "high_potential"
                 if lead.classification in REPLY_CLASSES:
-                    try:
-                        self.storage.save_reply(self.reply_generator.generate_replies(lead, profile))
-                    except Exception as exc:  # a failed draft must not lose the lead
-                        log.warning("reply draft failed for %s: %s", lead.id, str(exc)[:200])
-                        rejections["reply_draft_failed"] += 1
+                    if lead.reply_policy != "draft":
+                        rejections["reply_human_only"] += 1
+                    elif not self.llm.is_configured:
+                        rejections["reply_skipped_no_model"] += 1
+                    else:
+                        try:
+                            # Reading comments costs a request, so only the best leads get it.
+                            self.draft_for_lead(lead, profile, read_thread=lead.classification == "high_potential")
+                        except Exception as exc:  # a failed draft must not lose the lead
+                            log.warning("reply draft failed for %s: %s", lead.id, str(exc)[:200])
+                            rejections["reply_draft_failed"] += 1
                 if qualified >= max_leads:
                     break
 
@@ -168,6 +315,7 @@ class DiscoveryOrchestrator:
         campaign_name: str = "Lead Discovery",
         platforms: Optional[List[str]] = None,
         max_leads: int = 15,
+        communities: Optional[List[str]] = None,
     ) -> str:
         profile = self.storage.get_latest_business_profile()
         if not profile:
@@ -185,7 +333,7 @@ class DiscoveryOrchestrator:
 
         def _worker() -> None:
             try:
-                self.run_campaign_sync(campaign_name, chosen, max_leads, campaign_id=campaign.id)
+                self.run_campaign_sync(campaign_name, chosen, max_leads, campaign_id=campaign.id, communities=communities)
             except Exception as exc:
                 log.exception("campaign %s failed", campaign.id)
                 latest = self.storage.get_campaign(campaign.id) or campaign

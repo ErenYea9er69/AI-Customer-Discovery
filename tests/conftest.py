@@ -1,116 +1,90 @@
-# -*- coding: utf-8 -*-
-"""Suite-wide containment for tests that exercise user-facing installers."""
-
-import os
-import shutil
-import subprocess
-import urllib.request
+import sys
+import time
 from pathlib import Path
 
 import pytest
+import requests
 
-from agent_reach.config import Config
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
+from agent_reach.discovery.models import (  # noqa: E402
+    BusinessProfile,
+    LeadQualification,
+    ScoreBreakdown,
+)
+from agent_reach.discovery.storage import DiscoveryStorage  # noqa: E402
 
-@pytest.fixture(scope="session")
-def bash_executable() -> str:
-    """Return a real GNU Bash, avoiding Windows' WSL launcher stub."""
-    candidates: list[Path] = []
-    override = os.environ.get("AGENT_REACH_TEST_BASH")
-    if override:
-        candidates.append(Path(override))
-
-    if os.name == "nt":
-        for env_name in ("PROGRAMFILES", "PROGRAMFILES(X86)"):
-            program_files = os.environ.get(env_name)
-            if program_files:
-                git_root = Path(program_files) / "Git"
-                candidates.extend(
-                    (git_root / "bin" / "bash.exe", git_root / "usr" / "bin" / "bash.exe")
-                )
-
-        local_app_data = os.environ.get("LOCALAPPDATA")
-        if local_app_data:
-            git_root = Path(local_app_data) / "Programs" / "Git"
-            candidates.extend(
-                (git_root / "bin" / "bash.exe", git_root / "usr" / "bin" / "bash.exe")
-            )
-
-        git = shutil.which("git")
-        if git:
-            git_parent = Path(git).resolve().parent
-            if git_parent.name.lower() in {"bin", "cmd"}:
-                git_root = git_parent.parent
-                candidates.extend(
-                    (git_root / "bin" / "bash.exe", git_root / "usr" / "bin" / "bash.exe")
-                )
-
-    discovered = shutil.which("bash")
-    if discovered:
-        candidates.append(Path(discovered))
-
-    seen: set[str] = set()
-    for candidate in candidates:
-        key = os.path.normcase(os.fspath(candidate))
-        if key in seen or not candidate.is_file():
-            continue
-        seen.add(key)
-        try:
-            result = subprocess.run(
-                [os.fspath(candidate), "--version"],
-                capture_output=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=5,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-        if result.returncode == 0 and "GNU bash" in result.stdout:
-            return os.fspath(candidate)
-
-    pytest.fail("GNU Bash is required for shell-script tests")
+VALUE_FIRST = (
+    "I stopped chasing by hand when I set one rule: every invoice gets a due date and a reminder "
+    "three days before it. A calendar repeat does it for free. It breaks down past twenty clients, "
+    "because nobody checks the calendar anymore."
+)
+PRODUCT_AWARE = VALUE_FIRST + " I built Acme for that stage, so I am biased."
 
 
 @pytest.fixture(autouse=True)
-def isolated_home(tmp_path, monkeypatch):
-    """Redirect every common home/config root before each test runs."""
-    home = tmp_path / "home"
-    home.mkdir(mode=0o700)
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setenv("USERPROFILE", str(home))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
-    monkeypatch.setenv("APPDATA", str(home / "AppData" / "Roaming"))
-    monkeypatch.setenv("LOCALAPPDATA", str(home / "AppData" / "Local"))
-    monkeypatch.delenv("OPENCLAW_HOME", raising=False)
-    for key in ("LLM_PROVIDER", "LLM_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY",
-                "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "AGENT_REACH_API_KEY"):
+def no_network(monkeypatch):
+    """Tests never touch the internet. A test that needs HTTP passes a fake session."""
+    def blocked(*a, **k):
+        raise requests.ConnectionError("network blocked in tests")
+    monkeypatch.setattr(requests.Session, "request", blocked)
+    for key in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY",
+                "DEEPSEEK_API_KEY", "LLM_PROVIDER", "LLM_MODEL", "SERPER_API_KEY", "BRAVE_API_KEY",
+                "TAVILY_API_KEY", "AGENT_REACH_ALLOW_AUTOPOST", "REDDIT_CLIENT_ID"):
         monkeypatch.delenv(key, raising=False)
-    # never start the background release check from tests
-    monkeypatch.setenv("AGENT_REACH_NO_UPDATE_CHECK", "1")
-    # Public-first routing must not turn adapter unit tests into live requests.
-    # Network tests supply their own response below this fixture.
-    def no_network(*args, **kwargs):
-        raise OSError("Unit tests require an explicit mocked HTTP response")
-    monkeypatch.setattr(urllib.request, "urlopen", no_network)
 
-    from agent_reach.runtime import bridge, cdp
-    monkeypatch.setattr(bridge, "status", lambda: {"ok": True, "daemonVersion": "1.8.7", "profiles": []})
-    monkeypatch.setattr(bridge, "launch_spec", lambda: (["node", "daemon.js"], "1.8.7"))
-    monkeypatch.setattr(bridge, "start", lambda: None)
-    monkeypatch.setattr(cdp, "_json", lambda *a, **k: None)  # unit tests never inspect the real dedicated browser
-    original_popen = subprocess.Popen
-    def local_commands_only(argv, *args, **kwargs):
-        # OpenCLI uses a machine-wide port even when HOME is temporary.
-        if isinstance(argv, (list, tuple)) and argv:
-            executable = Path(argv[0])
-            if "pip" in argv and "install" in argv:
-                pytest.fail("Unmocked pip install would download real dependencies during a unit test")
-            if executable.name in {"opencli", "opencli.cmd"} and "--version" not in argv and home not in executable.resolve().parents:
-                pytest.fail("Unmocked OpenCLI command would touch the user's Bridge daemon")
-        return original_popen(argv, *args, **kwargs)
-    monkeypatch.setattr(subprocess, "Popen", local_commands_only)
 
-    config_dir = home / ".agent-reach"
-    monkeypatch.setattr(Config, "CONFIG_DIR", config_dir)
-    monkeypatch.setattr(Config, "CONFIG_FILE", config_dir / "config.yaml")
-    return home
+@pytest.fixture
+def storage(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_REACH_DISCOVERY_DB", str(tmp_path / "t.db"))
+    return DiscoveryStorage(tmp_path / "t.db")
+
+
+@pytest.fixture
+def profile():
+    return BusinessProfile(
+        name="Acme", main_product_or_service="invoice reminders", features=["auto reminders"],
+        problems_solved=["chasing late invoices from clients"], pain_vocabulary=["clients pay late every month"],
+        icp="freelance designers", competitors_and_alternatives=["FreshBooks"], url="https://acme.test",
+    )
+
+
+def make_lead(**kw):
+    base = dict(
+        discovered_item_id="i", title="Chasing invoices", url="https://www.reddit.com/r/freelance/comments/abc/x/",
+        platform="reddit", community="r/freelance", author="u", published_at="",
+        excerpt="I keep forgetting to chase late invoices.", customer_problem="forgets to chase invoices",
+        pain_point_category="c", profile_match="m", product_fit_explanation="z", evidence="e", score=60,
+        score_breakdown=ScoreBreakdown(icp_match=10, problem_fit=10, buying_intent=10, urgency=10, recency=10, total=50),
+    )
+    base.update(kw)
+    return LeadQualification(**base)
+
+
+@pytest.fixture
+def lead():
+    return make_lead()
+
+
+class FakeLLM:
+    """Scripted model. `outputs` is a list of dicts returned in order; the last repeats."""
+    is_mock = False
+    is_configured = True
+
+    def __init__(self, *outputs):
+        self.outputs = list(outputs) or [{}]
+        self.calls = []
+
+    def for_tier(self, tier):
+        return self
+
+    def complete_json(self, prompt, system_prompt=None):
+        self.calls.append((prompt, system_prompt))
+        i = min(len(self.calls) - 1, len(self.outputs) - 1)
+        return self.outputs[i]
+
+
+@pytest.fixture
+def now():
+    return time.time()

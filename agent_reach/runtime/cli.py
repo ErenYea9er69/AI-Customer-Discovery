@@ -45,8 +45,11 @@ HELP = """agent-reach — internet access for AI agents (all output is JSON)
 
 For agents:
   agent-reach channels                    list channels, actions, params
-  agent-reach dashboard                   launch web dashboard UI at http://127.0.0.1:8000
-  agent-reach mcp                         run FastMCP server over stdio for Claude, Cursor, Antigravity
+  agent-reach discovery <command>         customer discovery and replies: profile, plan, search, leads, reply,
+                                          lint, approve, post, confirm, voice, prefs, accounts, rules, posting,
+                                          skills, check, export, analytics (run it with no command for usage)
+  agent-reach dashboard                   launch the dashboard when the dashboard module is installed
+  agent-reach mcp                         run the MCP server over stdio for Claude, Cursor, VS Code, Antigravity
   agent-reach <channel> <action> [args]   e.g. agent-reach bilibili search python
   agent-reach read <url>                  read a link with the matching channel
   Search/read try declared public web routes first; --backend selects a site tool

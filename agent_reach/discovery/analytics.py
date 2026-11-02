@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from agent_reach.discovery.storage import DiscoveryStorage
 
@@ -37,17 +37,17 @@ class DiscoveryAnalytics:
                 ],
             }
 
-        complaints_counter = Counter(l.customer_problem for l in leads if l.customer_problem)
-        categories_counter = Counter(l.pain_point_category for l in leads if l.pain_point_category)
-        competitors_counter = Counter(l.competitor_mentioned for l in leads if l.competitor_mentioned)
-        intent_counter = Counter(l.purchase_intent for l in leads)
-        platform_counter = Counter(l.platform for l in leads)
-        urgency_counter = Counter(l.urgency for l in leads)
+        complaints_counter = Counter(lead.customer_problem for lead in leads if lead.customer_problem)
+        categories_counter = Counter(lead.pain_point_category for lead in leads if lead.pain_point_category)
+        competitors_counter = Counter(lead.competitor_mentioned for lead in leads if lead.competitor_mentioned)
+        intent_counter = Counter(lead.purchase_intent for lead in leads)
+        platform_counter = Counter(lead.platform for lead in leads)
+        urgency_counter = Counter(lead.urgency for lead in leads)
 
         high_urgency_list = [
-            {"problem": l.customer_problem, "count": 1, "community": l.community, "excerpt": l.excerpt}
-            for l in leads
-            if l.urgency == "High"
+            {"problem": lead.customer_problem, "count": 1, "community": lead.community, "excerpt": lead.excerpt}
+            for lead in leads
+            if lead.urgency == "High"
         ]
 
         # Actionable suggestions
@@ -75,8 +75,29 @@ class DiscoveryAnalytics:
                 "description": "These users are actively asking for tool recommendations and ready to evaluate solutions.",
             })
 
+        community_counter = Counter(lead.community for lead in leads if lead.community)
+        strong = Counter(lead.community for lead in leads if lead.classification == "high_potential" and lead.community)
+        kinds = self.storage.recent_published_kinds(limit=100, since_days=90)
+        reply_mix: Dict[str, Any] = {
+            "published_last_90_days": len(kinds),
+            "product_aware": sum(1 for k in kinds if k == "product_aware"),
+            "value_first": sum(1 for k in kinds if k == "value_first"),
+        }
+        if kinds:
+            reply_mix["product_share"] = round(reply_mix["product_aware"] / len(kinds), 3)
+            if reply_mix["product_share"] > 0.1:
+                recommendations.append({
+                    "type": "safety",
+                    "title": "Too many product replies",
+                    "description": "More than 10 percent of your recent replies name the product. Post helpful replies without it first.",
+                })
         return {
             "total_leads": total,
+            "top_communities": [
+                {"community": c, "leads": n, "high_potential": strong.get(c, 0)}
+                for c, n in community_counter.most_common(6)
+            ],
+            "reply_mix": reply_mix,
             "common_complaints": [
                 {"problem": prob, "count": count, "category": "Problem"}
                 for prob, count in complaints_counter.most_common(5)

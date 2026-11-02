@@ -6,6 +6,7 @@ from __future__ import annotations
 import time
 import uuid
 from typing import Any, Dict, List, Literal, Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -45,6 +46,10 @@ class BusinessProfile(BaseModel):
     pricing_info: Optional[str] = None
     geographic_market: str = "Global"
     trigger_events: List[str] = Field(default_factory=list)
+    # Phrases customers type when they have the problem. Search and scoring use them.
+    pain_vocabulary: List[str] = Field(default_factory=list)
+    # Kinds of people who must not become leads.
+    not_for: List[str] = Field(default_factory=list)
     facts: List[FactItem] = Field(default_factory=list)
     inferences: List[InferenceItem] = Field(default_factory=list)
     confirmed: bool = False
@@ -60,6 +65,8 @@ class SearchQuery(BaseModel):
     platform: str = "reddit"  # reddit, hackernews, web, github, twitter, quora
     target_community: Optional[str] = None  # e.g. "r/startups"
     rationale: str = ""
+    # Buyer stage: switching, solution, problem, category. Empty for old rows.
+    stage: str = ""
 
 
 class DiscoveredItem(BaseModel):
@@ -124,7 +131,26 @@ class LeadQualification(BaseModel):
     # "llm" when a model judged the thread, "heuristic" when only keyword rules ran.
     judged_by: Literal["llm", "heuristic"] = "heuristic"
     thread_health: Dict[str, Any] = Field(default_factory=dict)
+    # Extra judgement data. All optional so old rows still load.
+    post_type: str = ""
+    evidence_verified: bool = False
+    # "draft" means a reply may be drafted. "human_only" means the platform bans generated text.
+    reply_policy: str = "draft"
+    status: Literal["new", "rejected", "replied", "closed"] = "new"
+    reject_reason: str = ""
     created_at: float = Field(default_factory=time.time)
+
+
+class ReplyTarget(BaseModel):
+    """Where inside a thread a reply goes: the post or one comment."""
+    target_kind: Literal["post", "comment"] = "post"
+    target_comment_id: str = ""
+    target_author: str = ""
+    target_text: str = ""
+    reason: str = ""
+    score: float = 0.0
+    depth: int = 0
+    age_hours: Optional[float] = None
 
 
 class GeneratedReply(BaseModel):
@@ -132,7 +158,7 @@ class GeneratedReply(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     lead_id: str
     value_first: str
-    product_aware: str
+    product_aware: str = ""
     edited_reply: Optional[str] = None
     selected_version: Literal["value_first", "product_aware", "custom"] = "value_first"
     status: Literal["draft", "approved", "pending_manual_post", "published", "rejected"] = "draft"
@@ -141,8 +167,64 @@ class GeneratedReply(BaseModel):
     target_url: str = ""
     affiliation_disclosure: str = "Disclosure: I am associated with this product."
     error_message: Optional[str] = None
+    # Reply target inside the thread.
+    target_kind: Literal["post", "comment"] = "post"
+    target_comment_id: str = ""
+    target_author: str = ""
+    target_text: str = ""
+    target_reason: str = ""
+    # Highest pitch level used by product_aware (0 to 3).
+    pitch_level: int = 2
+    # Lint reports per version, filled by the generator or the MCP gate.
+    lint: Dict[str, Any] = Field(default_factory=dict)
+    needs_human_edit: bool = False
+    generated_by: str = "llm"
+    # Filled after posting.
+    published_comment_id: str = ""
+    published_url: str = ""
+    outcome: Dict[str, Any] = Field(default_factory=dict)
     created_at: float = Field(default_factory=time.time)
     updated_at: float = Field(default_factory=time.time)
+
+
+class ReplyPreferences(BaseModel):
+    """What the owner wants: voice, limits and pitch level. Stored once, used for every draft."""
+    voice_samples: List[str] = Field(default_factory=list)
+    voice_card: Dict[str, Any] = Field(default_factory=dict)
+    banned_words: List[str] = Field(default_factory=list)
+    use_user_banned_list: bool = True
+    strict_avoid: bool = False
+    avoid_budget: int = 2
+    persona: Literal["founder", "employee", "maker", "contributor"] = "founder"
+    pitch_level: int = Field(default=2, ge=0, le=3)
+    language: str = "en"
+    min_words: int = 15
+    max_words: int = 120
+    allow_links: bool = False
+    allow_emoji: Optional[bool] = None
+    updated_at: float = Field(default_factory=time.time)
+
+
+class LinkedAccount(BaseModel):
+    """An existing account the owner links. No password or cookie is stored here."""
+    platform: str
+    handle: str
+    mode: Literal["manual", "api"] = "manual"
+    snapshot: Dict[str, Any] = Field(default_factory=dict)
+    snapshot_at: Optional[float] = None
+    voice_imported_at: Optional[float] = None
+    added_at: float = Field(default_factory=time.time)
+
+
+class CommunityRule(BaseModel):
+    """What the owner read in a community's rules. The publisher uses it."""
+    community: str
+    self_promo: Literal["allowed", "thread_only", "banned", "unknown"] = "unknown"
+    links_allowed: bool = False
+    ai_content_allowed: bool = True
+    min_karma: int = 0
+    notes: str = ""
+    acknowledged_at: float = Field(default_factory=time.time)
 
 
 class PostingSettings(BaseModel):
@@ -150,17 +232,17 @@ class PostingSettings(BaseModel):
     mode: Literal["draft", "manual", "automatic"] = "manual"
     daily_limit: int = 5
     min_interval_seconds: int = 600  # 10 minutes between posts
-    allowed_communities: List[str] = Field(
-        default_factory=lambda: [
-            "r/startups",
-            "r/SaaS",
-            "r/Entrepreneur",
-            "r/smallbusiness",
-            "r/devops",
-            "r/webdev",
-        ]
-    )
+    # Empty means no whitelist. The community rules check still applies.
+    allowed_communities: List[str] = Field(default_factory=list)
+    # Product-aware replies need a linked account whose stored health allows the pitch level.
+    require_account_health: bool = True
     emergency_stop: bool = False
+    # Random extra wait on top of min_interval_seconds, as a fraction (0.3 means up to 30 percent).
+    interval_jitter: float = 0.3
+    # At most this share of recent comments may name the product.
+    max_mention_ratio: float = 0.1
+    # Block posts to a community until the owner records its rules.
+    require_rules_ack: bool = True
     reddit_client_id: Optional[str] = None
     reddit_client_secret: Optional[str] = None
     reddit_username: Optional[str] = None

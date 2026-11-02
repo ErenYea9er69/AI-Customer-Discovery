@@ -1,146 +1,123 @@
-# 🎯 Agent Reach: AI Customer Discovery & Lead Generation Agent
+# Agent Reach
 
-> Transform raw community conversations into high-intent customer leads and personalized, value-first replies.
+Agent Reach finds people who have a problem your product solves, in public communities, and drafts honest replies in your own voice. You post every reply yourself from your own account.
 
-Agent Reach is an AI customer intelligence and lead discovery agent. It analyzes a business website or product description, identifies the exact problems it solves and its Ideal Customer Profile (ICP), searches relevant online communities (Reddit, Web, GitHub Issues) for people actively experiencing those problems, evaluates lead intent with an explainable 100-point score, and generates personalized, community-compliant responses.
+It works in two ways that share the same rules:
 
----
+- A command line pipeline that calls a language model of your choice.
+- An MCP server for Claude Code, Cursor, VS Code, Claude Desktop and Antigravity. Your host AI does the reasoning and the server supplies the tools.
 
-## ⚡ Key Capabilities
+Both use one skill pack in `skills/`. Both use the same linter, the same lead scoring rule and the same posting gates. A lead gets the same class on either path.
 
-- **🧠 Business Understanding Engine:** Crawls company websites (`/pricing`, `/features`, `/about`, `/faq`) or analyzes manual product descriptions. Extracts verified facts (with direct source links) and AI inferences with confidence ratings.
-- **🔍 Intelligent Customer Discovery:** Generates targeted queries based on customer pain expressions (`"struggling with..."`, `"looking for an alternative to..."`, `"hate having to..."`, `"is there a tool that..."`). Prioritizes Reddit as the primary source, supplemented by Web, GitHub, and .
-- **📊 Explainable Lead Qualification (100 Points):**
-  - **ICP Match:** 25 points
-  - **Problem & Product Fit:** 30 points
-  - **Buying Intent:** 20 points
-  - **Urgency:** 15 points
-  - **Recency:** 10 points
-  - Classifies into *High-Potential Lead*, *Relevant Lead*, *Customer Research Insight*, and *Competitor Intelligence*.
-- **💬 AI Reply Studio:** Generates two distinct response strategies:
-  - **Value-First Response:** Genuine actionable advice and solutions with zero promotional pitch.
-  - **Product-Aware Response:** Helpful answer naturally introducing the product with transparent affiliation disclosure.
-- **🛡️ Safe Publishing & Automation:** Draft mode, Manual Approval mode (default), and Automatic mode with emergency stops, allowed community whitelists, and daily rate limits. Fallback copy-and-open workflow for platforms without direct API posting.
-- **🖥️ Precision CRM Dashboard:** Full-stack dashboard built with FastAPI, SQLite, React, TypeScript, Vite, and the Better Design Precision system tokens.
+## What it does
 
----
+1. Reads your website or your description and builds a profile: the problems you solve, your ideal customer, the words customers use, and the people who should not become leads.
+2. Plans searches by buyer stage (switching, solution, problem) in your customers' own words. It never puts your product name in a query.
+3. Searches Reddit, Hacker News, GitHub, Quora, X and the web. It keeps open threads that can still take a comment.
+4. Scores each thread with a five-part rubric and checks the evidence quote against the stored post. Keyword-only scoring can never reach high potential.
+5. Reads the comments and picks where a reply fits: the post, or one comment that asks for a tool.
+6. Drafts two replies. The value-first reply never names your product. The product-aware reply names it once and states your connection in a natural first-person sentence.
+7. Lints every draft: banned words, dashes, markdown, links, emoji, length, affiliation, repeats, and how closely it matches your voice.
+8. Gates posting by your account's real age and karma, the community's rules you recorded, the share of your comments that name the product, a daily cap and one reply per thread.
 
-## 🚀 Quick Start
+## Your own accounts
 
-### 1. Model Context Protocol (MCP) Mode (Antigravity, Claude Code, Cursor, VS Code)
+You link accounts you already use. The app stores the handle only. It never stores a password or a cookie and it never creates accounts. It reads public data (age, karma, recent comments) to decide how much promotion the account can carry, and to learn your writing style from your own comments.
 
-Connect Agent Reach directly to your AI assistant:
-```bash
-# Run FastMCP server over stdio:
-agent-reach mcp
-# or:
-python -m agent_reach.mcp.server
-```
+| Stage | Account | Highest pitch level |
+| --- | --- | --- |
+| build | under 30 days or under 100 karma, or unreadable | 0, help only |
+| trusted | 30 days and 100 karma | 1, describe the kind of tool |
+| established | 90 days and 300 karma | 2, name the product once, no link |
+| veteran | 180 days and 500 karma | 3, name it with a link when the thread asks |
 
-> **Zero External LLM APIs Needed:** In MCP mode, your host AI (Claude, Cursor, Antigravity) handles all reasoning, lead scoring, and reply generation. The server harvests community conversations directly and persists findings into SQLite.
+An account whose recent comments name the product more than 10 percent of the time drops one stage.
 
-See [docs/mcp_setup.md](docs/mcp_setup.md) for pre-built configurations for Antigravity, Cursor (`.cursor/mcp.json`), Claude Code (`.mcp.json`), and VS Code.
-
----
-
-### 2. Start the Customer Discovery Dashboard
-
-```bash
-# Starts the FastAPI server and serves the built dashboard UI at http://127.0.0.1:8000
-agent-reach dashboard --port 8000
-```
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
-
----
-
-### 2. CLI Customer Discovery Workflows
-
-You can also run all customer discovery stages directly from the command line:
-
-#### Step 1: Analyze Website or Product Description
-```bash
-# Extract from a website URL:
-agent-reach discovery profile --url "https://myproduct.example.com"
-
-# Or extract from a manual description:
-agent-reach discovery profile --name "SuperTask" --desc "AI tool that automates GitHub issue triage and backlog deduplication."
-```
-
-#### Step 2: Plan Customer Discovery Queries
-```bash
-agent-reach discovery plan
-```
-
-#### Step 3: Run Research Campaign
-```bash
-agent-reach discovery search --max 10 --name "Q4 Inbound Hunt"
-```
-
-#### Step 4: List & Inspect Qualified Leads
-```bash
-agent-reach discovery leads --min-score 70
-```
-
-#### Step 5: Generate & Inspect Replies
-```bash
-agent-reach discovery reply <lead-id>
-```
-
-#### Step 6: Export Leads for CRM Sync
-```bash
-# Export to CSV:
-agent-reach discovery export --format csv > leads.csv
-
-# Export to JSON:
-agent-reach discovery export --format json > leads.json
-```
-
-#### Step 7: View Pain Point Analytics
-```bash
-agent-reach discovery analytics
-```
-
----
-
-## 🏛️ Architecture & Modules
+## Install
 
 ```
-agent_reach/
-├── discovery/
-│   ├── models.py          # Pydantic data models (Profile, Lead, Reply, Settings)
-│   ├── storage.py         # SQLite persistence & CSV/JSON export
-│   ├── business_engine.py # Website scraping & fact/inference extraction
-│   ├── search_planner.py  # Problem & competitor alternative query generation
-│   ├── harvester.py       # Multi-platform community search (Reddit, Web, GitHub)
-│   ├── qualifier.py       # 100-point explainable lead qualification
-│   ├── reply_generator.py # Value-first and product-aware response generation
-│   ├── publisher.py       # Safe publishing layer, rate limits & emergency stop
-│   ├── analytics.py       # Customer pain points, competitor gaps & strategy suggestions
-│   ├── orchestrator.py    # Background campaign execution coordinator
-│   └── cli.py             # CLI commands (dashboard, discovery)
-├── server/
-│   └── app.py             # FastAPI REST endpoints & static asset serving
-├── channels/              # Platform integration adapters
-frontend/                  # React + TypeScript + Vite Dashboard (Precision DS)
-tests/                     # Test suite covering all 16 spec scenarios
+pip install .
 ```
 
----
+Python 3.10 or newer. For the MCP server only, you need no model key. For the pipeline, set one provider key (see `.env.example`).
 
-## 🧪 Testing & Verification
+## Quick start with the MCP server
 
-Run the full automated test suite verifying all 16 required transformation scenarios:
+Add this to your client's MCP configuration:
 
-```bash
-# Run discovery engine & 16 scenario tests:
-python -m pytest tests/test_end_to_end_scenarios.py -v
-
-# Run entire test suite:
-python -m pytest tests/
+```json
+{
+  "mcpServers": {
+    "agent-reach": { "command": "agent-reach", "args": ["mcp"] }
+  }
+}
 ```
 
----
+Then tell your assistant: "Use Agent Reach to find customers for https://your-site.com". It calls `reach_status` and follows the `customer-discovery` skill. See `docs/mcp_setup.md` for each client.
 
-## 📄 License
+## Quick start with the command line
 
-MIT
+```
+export ANTHROPIC_API_KEY=...            # or OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, DEEPSEEK_API_KEY
+agent-reach discovery profile --url https://your-site.com --confirm
+agent-reach discovery accounts link reddit:your_handle
+agent-reach discovery voice --from-account reddit:your_handle
+agent-reach discovery rules set r/freelance --self-promo thread_only --ai-content no
+agent-reach discovery search --max 10 --communities r/freelance,r/smallbusiness
+agent-reach discovery leads --min-score 60
+agent-reach discovery reply LEAD_ID
+agent-reach discovery approve REPLY_ID --version value_first
+agent-reach discovery post REPLY_ID          # prints the text and a direct link
+agent-reach discovery confirm REPLY_ID --url https://www.reddit.com/...
+```
+
+`agent-reach discovery` with no command lists every command. Every command prints JSON.
+
+## Platform rules the app follows
+
+| Platform | Drafts | Posting |
+| --- | --- | --- |
+| Reddit | yes | manual by default. API posting needs approved credentials, two switches and a passing gate |
+| Hacker News | no. Generated and AI-edited comments are banned there, so threads are research only | manual |
+| GitHub | yes | manual by default, API with a token |
+| X | yes, short | manual only. X forbids unsolicited automated replies |
+| Quora, web forums | yes | manual only |
+
+Many subreddits ban AI-written content or self promotion. Read each community's rules and record them with `discovery rules set` (or `reach_set_community_rules`). The publisher refuses Reddit posts to communities whose rules you did not record. See `docs/safety.md`.
+
+## The skill pack
+
+Seven skills in `skills/`, one per stage, each with references:
+
+| Skill | Stage | Purpose |
+| --- | --- | --- |
+| customer-discovery | router | Order of work, stop rules, report format |
+| business-intelligence | profile | Facts versus inferences, pain vocabulary, not-for list |
+| community-search | search | How members write, query shapes, community choice |
+| lead-qualification | qualify | Rubric, anti-inflation rules, calibration examples |
+| thread-engagement | engage | Choosing the post or a comment, handling replies |
+| community-copywriting | write | Reddit voice, banned words, pitch ladder, disclosure phrases, voice cloning |
+| platform-safety | safety | Rules per platform, FTC disclosure, warm-up plan |
+
+Edit them freely. `python scripts/validate_skills.py` checks the result: frontmatter, references, dashes, tool names and that every good example passes the linter while every bad example fails it. `docs/skills.md` explains how to add your own voice samples and banned words.
+
+## Limits you should know
+
+- Reddit's public JSON endpoints are rate limited and sometimes blocked. When comments cannot be read, the reply goes to the post.
+- Keyed search providers (Serper, Brave, Tavily), Reddit and GitHub posting through APIs, and the Docker image were written against vendor documentation and were not exercised against live accounts. Run `agent-reach discovery check search` and `check llm` with your keys.
+- The linter cannot guarantee that a human moderator or a platform classifier will not notice generated text. Edit every reply so it sounds like you, and post only where the rules allow it.
+- The word lists are tuned to English.
+- The `dashboard` command needs the dashboard module, which is not part of this build.
+
+## Development
+
+```
+pip install -e ".[dev]"
+ruff check agent_reach/discovery agent_reach/mcp scripts tests
+mypy agent_reach/discovery agent_reach/mcp
+pytest
+python scripts/validate_skills.py
+python scripts/gen_tool_reference.py --check
+```
+
+`docs/ci-cd.md` describes the workflows. `AUDIT.md` lists what the original code did and what changed.

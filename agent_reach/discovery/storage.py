@@ -13,16 +13,18 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 
-from agent_reach.discovery.thread_check import canonical_url
 from agent_reach.discovery.models import (
     BusinessProfile,
     Campaign,
+    CommunityRule,
     DiscoveredItem,
     GeneratedReply,
     LeadQualification,
     PostingSettings,
-    ScoreBreakdown,
 )
+from agent_reach.discovery.thread_check import canonical_url
+
+_SECRET_FIELDS = {"reddit_client_id", "reddit_client_secret", "reddit_username", "reddit_password", "github_token"}
 
 DEFAULT_DB_PATH = Path(
     os.getenv("AGENT_REACH_DISCOVERY_DB")
@@ -145,11 +147,22 @@ class DiscoveryStorage:
                 """
             )
 
+        self._migrate()
+
         # The settings table holds API keys. Keep the file private to this user.
         try:
             os.chmod(self.db_path, 0o600)
         except OSError:
             pass
+
+    def _migrate(self) -> None:
+        """Add columns that older databases lack. Safe to run on every start."""
+        with self._connection() as conn:
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(posting_logs)").fetchall()}
+            if "kind" not in cols:
+                conn.execute("ALTER TABLE posting_logs ADD COLUMN kind TEXT DEFAULT ''")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_replies_lead ON replies (lead_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_posting_platform ON posting_logs (platform, status, created_at)")
 
     # ── Business Profiles ──
 
@@ -268,6 +281,22 @@ class DiscoveryStorage:
         except sqlite3.IntegrityError:
             return False
 
+    def get_discovered_item(self, item_id: str) -> Optional[DiscoveredItem]:
+        with self._connection() as conn:
+            row = conn.execute("SELECT data FROM discovered_items WHERE id = ?", (item_id,)).fetchone()
+            return DiscoveredItem.model_validate_json(row["data"]) if row else None
+
+    def get_discovered_item_by_url(self, url: str) -> Optional[DiscoveredItem]:
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT data FROM discovered_items WHERE url = ? OR url = ?", (canonical_url(url), url)
+            ).fetchone()
+            return DiscoveredItem.model_validate_json(row["data"]) if row else None
+
+    def update_discovered_item(self, item: DiscoveredItem) -> None:
+        with self._connection() as conn:
+            conn.execute("UPDATE discovered_items SET data = ? WHERE id = ?", (item.model_dump_json(), item.id))
+
     def is_url_discovered(self, url: str) -> bool:
         with self._connection() as conn:
             row = conn.execute(
@@ -329,9 +358,12 @@ class DiscoveryStorage:
         query: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
+        include_rejected: bool = False,
     ) -> List[LeadQualification]:
         conditions = ["score >= ?"]
         params: List[Any] = [min_score]
+        if not include_rejected:
+            conditions.append("COALESCE(json_extract(data, '$.status'), 'new') != 'rejected'")
 
         if platform:
             conditions.append("platform = ?")
@@ -363,6 +395,15 @@ class DiscoveryStorage:
             rows = conn.execute(sql, params).fetchall()
             return [LeadQualification.model_validate_json(r["data"]) for r in rows]
 
+    def set_lead_status(self, lead_id: str, status: str, reason: str = "") -> Optional[LeadQualification]:
+        lead = self.get_lead(lead_id)
+        if not lead:
+            return None
+        lead.status = status  # type: ignore[assignment]
+        lead.reject_reason = reason
+        self.save_lead(lead)
+        return lead
+
     def count_leads(self) -> Dict[str, int]:
         with self._connection() as conn:
             total = conn.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
@@ -389,8 +430,13 @@ class DiscoveryStorage:
     # ── Replies ──
 
     def save_reply(self, reply: GeneratedReply) -> None:
+        """Save a reply. One reply exists per lead, so a new draft replaces the old one."""
         reply.updated_at = time.time()
         with self._connection() as conn:
+            existing = conn.execute("SELECT id, created_at FROM replies WHERE lead_id = ?", (reply.lead_id,)).fetchone()
+            if existing and existing["id"] != reply.id:
+                reply.id = existing["id"]
+                reply.created_at = existing["created_at"]
             conn.execute(
                 """
                 INSERT INTO replies (id, lead_id, status, selected_version, data, created_at, updated_at)
@@ -411,6 +457,11 @@ class DiscoveryStorage:
                     reply.updated_at,
                 ),
             )
+
+    def get_reply(self, reply_id: str) -> Optional[GeneratedReply]:
+        with self._connection() as conn:
+            row = conn.execute("SELECT data FROM replies WHERE id = ?", (reply_id,)).fetchone()
+            return GeneratedReply.model_validate_json(row["data"]) if row else None
 
     def get_reply_by_lead_id(self, lead_id: str) -> Optional[GeneratedReply]:
         with self._connection() as conn:
@@ -444,6 +495,7 @@ class DiscoveryStorage:
         mode: str,
         status: str,
         error_message: Optional[str] = None,
+        kind: str = "",
     ) -> None:
         import uuid
 
@@ -451,8 +503,8 @@ class DiscoveryStorage:
             conn.execute(
                 """
                 INSERT INTO posting_logs (
-                    id, lead_id, reply_id, platform, target_url, content, mode, status, error_message, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    id, lead_id, reply_id, platform, target_url, content, mode, status, error_message, created_at, kind
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(uuid.uuid4()),
@@ -465,8 +517,33 @@ class DiscoveryStorage:
                     status,
                     error_message or "",
                     time.time(),
+                    kind,
                 ),
             )
+
+    def recent_published_kinds(self, platform: Optional[str] = None, limit: int = 30, since_days: int = 30) -> List[str]:
+        """Kinds ("value_first" or "product_aware") of the latest published replies, newest first."""
+        cutoff = time.time() - since_days * 86400
+        sql = "SELECT kind FROM posting_logs WHERE status = 'published' AND created_at >= ?"
+        params: List[Any] = [cutoff]
+        if platform:
+            sql += " AND platform = ?"
+            params.append(platform)
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        with self._connection() as conn:
+            return [r["kind"] or "" for r in conn.execute(sql, params).fetchall()]
+
+    def list_posting_logs(self, limit: int = 50, platform: Optional[str] = None) -> List[Dict[str, Any]]:
+        sql = "SELECT * FROM posting_logs"
+        params: List[Any] = []
+        if platform:
+            sql += " WHERE platform = ?"
+            params.append(platform)
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        params.append(max(1, min(limit, 500)))
+        with self._connection() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
     def last_published_at(self, platform: Optional[str] = None) -> Optional[float]:
         with self._connection() as conn:
@@ -522,11 +599,61 @@ class DiscoveryStorage:
                 (key, json.dumps(value), time.time()),
             )
 
+    # Community rules the owner read. The publisher checks them before every post.
+
+    @staticmethod
+    def _rule_key(community: str) -> str:
+        return (community or "").strip().lower().removeprefix("r/")
+
+    def list_community_rules(self) -> List[CommunityRule]:
+        raw = self.get_setting("community_rules", {}) or {}
+        out: List[CommunityRule] = []
+        for item in raw.values():
+            try:
+                out.append(CommunityRule.model_validate(item))
+            except Exception:
+                continue
+        return out
+
+    def get_community_rule(self, community: str) -> Optional[CommunityRule]:
+        raw = (self.get_setting("community_rules", {}) or {}).get(self._rule_key(community))
+        if not raw:
+            return None
+        try:
+            return CommunityRule.model_validate(raw)
+        except Exception:
+            return None
+
+    def save_community_rule(self, rule: CommunityRule) -> None:
+        raw = self.get_setting("community_rules", {}) or {}
+        raw[self._rule_key(rule.community)] = rule.model_dump()
+        self.set_setting("community_rules", raw)
+
+    def has_published_url(self, url: str) -> bool:
+        """True when a reply already went out (or waits to go out) on this thread."""
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM posting_logs WHERE target_url = ? AND status IN ('published', 'pending_manual_post') LIMIT 1",
+                (url,),
+            ).fetchone()
+        return row is not None
+
+    def get_posting_settings(self) -> PostingSettings:
+        raw = self.get_setting("posting_settings", {}) or {}
+        try:
+            return PostingSettings.model_validate(raw)
+        except Exception:
+            return PostingSettings()
+
+    def save_posting_settings(self, settings: PostingSettings) -> None:
+        # Passwords and tokens are never written to the database. Read them from the environment.
+        self.set_setting("posting_settings", settings.model_dump(exclude=_SECRET_FIELDS))
+
     # ── Exporting (CSV / JSON) ──
 
     def export_leads_json(self, min_score: int = 0) -> str:
         leads = self.list_leads(min_score=min_score, limit=1000)
-        return json.dumps([l.model_dump() for l in leads], indent=2)
+        return json.dumps([lead.model_dump() for lead in leads], indent=2)
 
     def export_leads_csv(self, min_score: int = 0) -> str:
         leads = self.list_leads(min_score=min_score, limit=1000)

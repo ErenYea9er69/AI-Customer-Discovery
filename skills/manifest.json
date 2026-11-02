@@ -1,0 +1,132 @@
+{
+  "pack_version": "1.0.0",
+  "sha256": "a3f33a06d74069965ceb927d27452372335cddf2eceb3ddda345305c259bbc52",
+  "skills": [
+    {
+      "description": "Orchestrates the full pipeline from business profile to an approved community reply. Load it first when finding customers, running a campaign, or deciding which other skill applies to the current step.",
+      "name": "customer-discovery",
+      "prompt_words": 569,
+      "references": [
+        "references/mcp-workflow.md",
+        "references/pipeline-workflow.md",
+        "references/tool-reference.md"
+      ],
+      "sha256": "f461c9daddf5e54bc84f7502613d309efeb944f34b772fc5ac0f3ddb742923ec",
+      "stage": "router",
+      "used_by": [
+        "pipeline",
+        "mcp"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "description": "Turns a business website or a product description into a verified profile: problems solved, ideal customer, pain vocabulary, alternatives and a not-for list. Use before any search.",
+      "name": "business-intelligence",
+      "prompt_words": 436,
+      "references": [
+        "references/extraction-rubric.md",
+        "references/icp-framework.md",
+        "references/pain-vocabulary.md"
+      ],
+      "sha256": "b1e2b177c48ba9f9a8cf12e3e80fc0e4da151126cfd5b89357f3fbfef2674088",
+      "stage": "profile",
+      "used_by": [
+        "pipeline",
+        "mcp"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "description": "Plans searches and reads threads the way a long-time community member does: natural phrasing, buyer-stage queries, comment-level signals and thread triage. Use when planning queries or choosing which threads to open.",
+      "name": "community-search",
+      "prompt_words": 460,
+      "references": [
+        "references/human-search-behavior.md",
+        "references/query-patterns.md",
+        "references/subreddit-selection.md"
+      ],
+      "sha256": "dcab315847ef2a65348adfe1cfc6de0a5cabd335d33317a7bb5465585414e6c2",
+      "stage": "search",
+      "used_by": [
+        "pipeline",
+        "mcp"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "description": "Scores a community post against a business profile with an explainable 100-point rubric, verbatim evidence and strict anti-inflation rules. Use for every candidate thread before drafting a reply.",
+      "name": "lead-qualification",
+      "prompt_words": 533,
+      "references": [
+        "references/rubric.md",
+        "references/calibration-examples.md"
+      ],
+      "sha256": "9932c84caea273c57c304f489d4fc6580c4b95de83adc0fc9792e80edd7b03c8",
+      "stage": "qualify",
+      "used_by": [
+        "pipeline",
+        "mcp"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "description": "Chooses where to reply inside a thread (the post or one comment), how to join the conversation, and how to handle answers, doubts and removals. Use after a lead is qualified and before drafting.",
+      "name": "thread-engagement",
+      "prompt_words": 401,
+      "references": [
+        "references/target-selection.md",
+        "references/reply-types.md",
+        "references/handling-responses.md"
+      ],
+      "sha256": "4490cdbffa890c35cd36876833c353e1fc6ccd8a7ddfdeb6b2121022492e19c9",
+      "stage": "engage",
+      "used_by": [
+        "pipeline",
+        "mcp"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "description": "Writes replies that read like a real member of the community, clones the owner's own voice from old comments, and states any product connection in a natural first-person sentence. Use for every reply draft.",
+      "name": "community-copywriting",
+      "prompt_words": 538,
+      "references": [
+        "references/reddit-voice.md",
+        "references/voice-cloning.md",
+        "references/ai-tells.md",
+        "references/pitch-ladder.md",
+        "references/disclosure-patterns.md",
+        "references/examples.md",
+        "references/banned-ai-tells.txt",
+        "references/banned-user-list.txt"
+      ],
+      "sha256": "04851de0ede3b3205b2328a12f5780ad454ad790a49b0d89a56e958397774454",
+      "stage": "write",
+      "used_by": [
+        "pipeline",
+        "mcp"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "description": "Platform rules, hard posting limits, account warm-up and disclosure duties for Reddit, Hacker News, GitHub, Quora, X and the web. Use before any reply is approved, prepared for posting or posted.",
+      "name": "platform-safety",
+      "prompt_words": 420,
+      "references": [
+        "references/reddit.md",
+        "references/hackernews.md",
+        "references/github.md",
+        "references/quora-web-x.md",
+        "references/ftc-disclosure.md",
+        "references/warmup-plan.md"
+      ],
+      "sha256": "c5ee57e560b520c0e0038c30bd5903adac5c5219fecb132a70162648ec4b9e29",
+      "stage": "safety",
+      "used_by": [
+        "pipeline",
+        "mcp"
+      ],
+      "version": "1.0.0"
+    }
+  ]
+}

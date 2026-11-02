@@ -1,0 +1,64 @@
+name: Weekly canary
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: pip-audit
+        run: |
+          python -m pip install pip-audit
+          python -m pip install -e .
+          pip-audit --skip-editable
+
+  latest-sdk:
+    name: Tests against the newest MCP SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install without the upper bound
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install --upgrade mcp
+          python -m pip list | grep -i "^mcp "
+      - run: python -m pytest tests --timeout=120
+
+  models:
+    name: Model names still resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - name: Check the configured provider
+        run: |
+          if [ -z "${ANTHROPIC_API_KEY}${OPENAI_API_KEY}${GEMINI_API_KEY}" ]; then
+            echo "No provider key is set as a repository secret. Skipping."
+            exit 0
+          fi
+          export AGENT_REACH_DISCOVERY_DB=/tmp/canary.db
+          agent-reach discovery check llm

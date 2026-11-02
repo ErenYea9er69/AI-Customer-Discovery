@@ -20,6 +20,7 @@ from typing import Any, Dict, Iterable, List, Optional
 import requests
 
 from agent_reach.discovery.models import DiscoveredItem, SearchQuery
+from agent_reach.discovery.search_backends import DuckDuckGoSearch, SearchChain
 from agent_reach.discovery.storage import DiscoveryStorage
 from agent_reach.discovery.thread_check import (
     PLATFORM_MAX_AGE_DAYS,
@@ -74,7 +75,17 @@ class CommunityHarvester:
             r_sec = posting.get("reddit_client_secret")
             self.reddit_meta = RedditMeta(client_id=r_id, client_secret=r_sec, session=self.session)
         self.exclude_hosts: List[str] = []   # the user's own site and competitor sites
-        self.diagnostics: Counter = Counter()
+        self._diagnostics: Counter = Counter()
+        self.search_chain = SearchChain(self.session, self._diagnostics)
+
+    @property
+    def diagnostics(self) -> Counter:
+        return self._diagnostics
+
+    @diagnostics.setter
+    def diagnostics(self, value: Counter) -> None:
+        self._diagnostics = value
+        self.search_chain.diagnostics = value
 
     # ── Routing ──
 
@@ -105,53 +116,15 @@ class CommunityHarvester:
     def _reject(self, code: str) -> None:
         self.diagnostics[f"rejected:{code}"] += 1
 
-    def _search(self, query: str, limit: int) -> List[Dict[str, Any]]:
-        """Exa first, DuckDuckGo second. Returns [] and logs when both fail."""
-        try:
-            from agent_reach.channels.web import WebChannel
-
-            results = WebChannel()._exa_search(query=query, limit=limit, timeout=12)
-            if results:
-                return results
-        except Exception as exc:
-            log.warning("Exa search failed (%s): %s", type(exc).__name__, str(exc)[:200])
-            self.diagnostics["search_error:exa"] += 1
-
-        results = self._duckduckgo(query, limit)
-        if not results:
-            self.diagnostics["search_empty"] += 1
-        return results
+    def _search(self, query: str, limit: int, days: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Keyed providers first, then Exa, then DuckDuckGo. Returns [] and counts failures."""
+        return self.search_chain.search(query, limit, days)
 
     def _duckduckgo(self, query: str, limit: int) -> List[Dict[str, Any]]:
+        """Kept for older callers. Use `_search`."""
         try:
-            resp = self.session.post(
-                "https://html.duckduckgo.com/html/",
-                data={"q": query},
-                headers={"User-Agent": USER_AGENT},
-                timeout=10,
-            )
-            if resp.status_code != 200:
-                self.diagnostics["search_error:duckduckgo"] += 1
-                return []
-            pattern = re.compile(
-                r'<h2 class="result__title">\s*<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>\s*</h2>'
-                r'.*?<a class="result__snippet"[^>]*>(.*?)</a>',
-                re.DOTALL,
-            )
-            items = []
-            for m in pattern.finditer(resp.text):
-                uddg = re.search(r"uddg=([^&]+)", m.group(1))
-                items.append({
-                    "title": _TAG_RE.sub("", m.group(2)).strip(),
-                    "url": urllib.parse.unquote(uddg.group(1)) if uddg else m.group(1),
-                    "text": _TAG_RE.sub("", m.group(3)).strip(),
-                    "published_at": None,
-                    "author": None,
-                })
-                if len(items) >= limit:
-                    break
-            return items
-        except requests.RequestException as exc:
+            return DuckDuckGoSearch(self.session).search(query, limit)
+        except Exception as exc:
             log.warning("DuckDuckGo failed: %s", type(exc).__name__)
             self.diagnostics["search_error:duckduckgo"] += 1
             return []
@@ -168,7 +141,7 @@ class CommunityHarvester:
     def search_reddit(self, query: str, subreddit: Optional[str] = None, limit: int = 5) -> List[DiscoveredItem]:
         sub = subreddit.strip() if subreddit and _SUB_RE.match(subreddit.strip()) else None
         scope = f"site:reddit.com/{sub}" if sub else "site:reddit.com"
-        results = self._search(f"{scope} {_clean_query(query)}", limit * 3)
+        results = self._search(f"{scope} {_clean_query(query)}", limit * 3, days=PLATFORM_MAX_AGE_DAYS["reddit"])
 
         candidates, seen = [], set()
         for res in results:
@@ -497,7 +470,7 @@ class CommunityHarvester:
         try:
             resp = self.session.get(
                 "https://api.github.com/search/issues",
-                params={"q": q, "per_page": limit * 3, "sort": "updated"},
+                params={"q": q, "per_page": str(limit * 3), "sort": "updated"},
                 headers=headers,
                 timeout=10,
             )

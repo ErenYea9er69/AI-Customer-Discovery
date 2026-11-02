@@ -1,15 +1,30 @@
 # -*- coding: utf-8 -*-
-"""Publishing with hard safety limits.
+"""Publishing with hard safety gates.
 
-Rules enforced here, in order: emergency stop, draft mode, human approval,
-Reddit community whitelist, daily cap, minimum gap between posts, and a live
-check that the thread is still open. Manual mode never calls a platform API. It
-returns text to copy, and the reply counts as published only after the person
-confirms.
+Gate order, first failure wins:
+  1. emergency stop
+  2. draft mode
+  3. human approval
+  4. platform policy (Hacker News never, X and Quora manual only)
+  5. content lint (banned words, dashes, markdown, links, affiliation, length)
+  6. community rules the owner recorded (self promotion, AI content, links, karma)
+  7. optional community whitelist
+  8. one reply per thread
+  9. account health (pitch level allowed by age and karma)
+  10. product mention ratio (at most one product reply in ten)
+  11. daily cap (the lower of the owner's cap and the account's cap)
+  12. gap between posts, with jitter
+  13. thread still open (Reddit and GitHub, live check)
+
+Manual mode never calls a platform API. It returns text and a direct link, and
+the reply counts as published only after the person confirms. Automatic mode
+needs two keys: the posting mode "automatic" and AGENT_REACH_ALLOW_AUTOPOST=1,
+plus approved API credentials in the environment. Credentials are never stored.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import time
@@ -17,7 +32,16 @@ from typing import Any, Dict, Optional, Tuple
 
 import requests
 
-from agent_reach.discovery.models import GeneratedReply, LeadQualification, PostingSettings
+from agent_reach.discovery import voice
+from agent_reach.discovery.accounts import AccountService
+from agent_reach.discovery.models import (
+    BusinessProfile,
+    GeneratedReply,
+    LeadQualification,
+    PostingSettings,
+    ReplyPreferences,
+)
+from agent_reach.discovery.platform_policy import can_auto_post, can_draft, get_policy
 from agent_reach.discovery.storage import DiscoveryStorage
 from agent_reach.discovery.thread_check import RedditMeta, judge_reddit, reddit_post_id
 
@@ -29,83 +53,203 @@ def _short(err: object) -> str:
 
 
 class CommunityPublisher:
-    """Manages compliant publishing, rate limits, emergency stops and copy fallbacks."""
+    """Applies every gate, then posts through an approved API or hands the text to the owner."""
 
-    def __init__(self, storage: Optional[DiscoveryStorage] = None, session: Optional[requests.Session] = None):
+    def __init__(
+        self,
+        storage: Optional[DiscoveryStorage] = None,
+        session: Optional[requests.Session] = None,
+        profile: Optional[BusinessProfile] = None,
+        prefs: Optional[ReplyPreferences] = None,
+    ):
         self.storage = storage or DiscoveryStorage()
         self.session = session or requests.Session()
+        self.profile = profile
+        self.prefs = prefs
 
-    # ── Rules ──
+    # ── Gates ──
+
+    def gate(
+        self, reply: GeneratedReply, lead: LeadQualification, settings: PostingSettings
+    ) -> Tuple[str, str]:
+        """Return (code, message). The code is "ok" when every gate passes."""
+        if settings.emergency_stop:
+            return "emergency_stop", "Emergency stop is active. All publishing is halted."
+        if settings.mode == "draft":
+            return "draft_mode", "Draft mode is on. Publishing is disabled."
+        if reply.status not in ("approved", "pending_manual_post"):
+            return "not_approved", "Approve the reply before publishing."
+        text = self._get_reply_content(reply).strip()
+        if not text:
+            return "empty", "The reply is empty."
+
+        policy = get_policy(lead.platform)
+        if not can_draft(lead.platform):
+            return "platform_policy", policy.note
+
+        kind = self._kind_of(reply, text)
+        level = reply.pitch_level if kind == "product_aware" else 0
+
+        report = voice.lint_reply(
+            text, kind=kind, product_name=self.profile.name if self.profile else "",
+            prefs=self.prefs, level=level, platform=lead.platform,
+            max_words=policy.max_words or None,
+        )
+        if not report.passed:
+            return "lint", "The text breaks writing rules: " + "; ".join(report.issue_lines())
+
+        rule = self.storage.get_community_rule(lead.community) if lead.community else None
+        if lead.platform == "reddit" and lead.community:
+            if rule is None and settings.require_rules_ack:
+                return "rules_not_read", (
+                    f"Read the rules of {lead.community}, then record them with the rules tool before posting."
+                )
+            if rule is not None:
+                if not rule.ai_content_allowed:
+                    return "rules_no_ai", f"{lead.community} bans AI-written content. Write this one yourself."
+                if kind == "product_aware" and rule.self_promo in ("banned", "thread_only"):
+                    return "rules_no_promo", f"{lead.community} does not allow self promotion here ({rule.self_promo})."
+                if re.search(r"https?://|\b\w+\.(?:com|io|ai|app|co|dev|net)\b", text, re.I) and not rule.links_allowed:
+                    return "rules_no_links", f"{lead.community} does not allow links in comments."
+
+        if settings.allowed_communities and lead.community:
+            allowed = {c.lower().removeprefix("r/") for c in settings.allowed_communities}
+            if lead.community.lower().removeprefix("r/") not in allowed:
+                return "not_whitelisted", f"{lead.community} is not in the allowed communities."
+
+        if reply.status != "pending_manual_post" and self.storage.has_published_url(lead.url):
+            return "thread_used", "A reply already went out on this thread. Do not post twice in one thread."
+
+        health = None
+        account = AccountService(self.storage, self.session).get(lead.platform)
+        if account is not None or settings.require_account_health:
+            health = AccountService(self.storage, self.session).health(
+                lead.platform, account.handle if account else None, self.profile.name if self.profile else ""
+            )
+        if kind == "product_aware" and health is not None:
+            if not health.known and settings.require_account_health:
+                return "account_unknown", (
+                    f"Link your {lead.platform} account and refresh it so the app can read its age and karma."
+                )
+            if level > health.max_pitch_level:
+                return "account_health", (
+                    f"Your account is at stage '{health.stage_name}' and allows pitch level {health.max_pitch_level}. "
+                    f"This reply uses level {level}. Post helpful replies first or use the value-first version."
+                )
+            if rule is not None and rule.min_karma and account and account.snapshot:
+                karma = account.snapshot.get("comment_karma") or 0
+                if karma < rule.min_karma:
+                    return "rules_min_karma", f"{lead.community} wants {rule.min_karma} karma. The account has {karma}."
+
+        if kind == "product_aware" and settings.max_mention_ratio < 1:
+            blocked = self._mention_gate(lead.platform, settings, account.snapshot if account else {})
+            if blocked:
+                return "mention_ratio", blocked
+
+        cap = settings.daily_limit
+        if health is not None and health.known:
+            cap = min(cap, health.suggested_daily_cap)
+        if self.storage.count_posts_today(lead.platform) >= cap:
+            return "daily_cap", f"Daily limit of {cap} reached for {lead.platform}."
+
+        last = self.storage.last_published_at(lead.platform)
+        if last and settings.min_interval_seconds > 0:
+            need = self._interval(settings, last)
+            wait = int(need - (time.time() - last))
+            if wait > 0:
+                return "interval", f"Wait {wait} more seconds between posts on {lead.platform}."
+        return "ok", "Ready to publish."
 
     def can_publish(
         self, reply: GeneratedReply, lead: LeadQualification, settings: PostingSettings
     ) -> Tuple[bool, str]:
-        if settings.emergency_stop:
-            return False, "Emergency stop is active. All publishing is halted."
-        if settings.mode == "draft":
-            return False, "Draft mode is on. Publishing is disabled."
-        if reply.status not in ("approved", "pending_manual_post"):
-            return False, "Approve the reply before publishing."
-        if not self._get_reply_content(reply).strip():
-            return False, "The reply is empty."
+        code, message = self.gate(reply, lead, settings)
+        return code == "ok", message
 
-        if lead.platform == "reddit" and settings.allowed_communities and lead.community:
-            allowed = {c.lower().removeprefix("r/") for c in settings.allowed_communities}
-            if lead.community.lower().removeprefix("r/") not in allowed:
-                return False, f"{lead.community} is not in the allowed communities."
+    def _mention_gate(self, platform: str, settings: PostingSettings, snapshot: Dict[str, Any]) -> str:
+        """At most `max_mention_ratio` of recent comments may name the product, this one included."""
+        kinds = self.storage.recent_published_kinds(platform, limit=30)
+        app_total, app_pa = len(kinds), sum(1 for k in kinds if k == "product_aware")
+        snap_total = int(snapshot.get("recent_comment_count") or 0)
+        snap_pa = round((snapshot.get("recent_mention_ratio") or 0) * snap_total)
+        total = max(app_total, snap_total) + 1
+        pa = max(app_pa, snap_pa) + 1
+        if pa / total > settings.max_mention_ratio:
+            need = int(pa / settings.max_mention_ratio) - total + 1
+            hint = (
+                "Refresh your linked account so the app can count your earlier comments, or "
+                if not snap_total else ""
+            )
+            return (
+                f"{pa} of the last {total} comments would name the product. "
+                f"{hint}post about {max(1, need)} more helpful replies without the product first."
+            )
+        return ""
 
-        if self.storage.count_posts_today(lead.platform) >= settings.daily_limit:
-            return False, f"Daily limit of {settings.daily_limit} reached for {lead.platform}."
-
-        last = self.storage.last_published_at(lead.platform)
-        if last and settings.min_interval_seconds > 0:
-            wait = int(settings.min_interval_seconds - (time.time() - last))
-            if wait > 0:
-                return False, f"Wait {wait} more seconds between posts on {lead.platform}."
-        return True, "Ready to publish."
+    @staticmethod
+    def _interval(settings: PostingSettings, last_published: float) -> float:
+        """Minimum gap plus a jitter that stays fixed for one previous post."""
+        digest = hashlib.sha256(f"{last_published:.0f}".encode()).digest()
+        fraction = int.from_bytes(digest[:2], "big") / 65535.0
+        return settings.min_interval_seconds * (1.0 + settings.interval_jitter * fraction)
 
     # ── Publish ──
 
     def publish_or_copy(
         self, reply: GeneratedReply, lead: LeadQualification, settings: PostingSettings
     ) -> Dict[str, Any]:
-        allowed, reason = self.can_publish(reply, lead, settings)
-        if not allowed:
-            self.storage.log_post(lead.id, reply.id, lead.platform, lead.url, "", settings.mode, "rejected", reason)
-            return {"success": False, "reason": reason}
+        code, reason = self.gate(reply, lead, settings)
+        kind = self._kind_of(reply, self._get_reply_content(reply))
+        if code != "ok":
+            self.storage.log_post(
+                lead.id, reply.id, lead.platform, lead.url, "", settings.mode, "rejected", reason, kind=kind
+            )
+            return {"success": False, "reason": reason, "code": code}
 
         content = self._final_content(reply)
-
+        note = ""
         if settings.mode == "automatic":
-            if lead.platform == "reddit" and self._reddit_creds(settings):
-                return self._publish_reddit_api(reply, lead, content, settings)
-            if lead.platform == "github" and (settings.github_token or os.getenv("GITHUB_TOKEN")):
-                return self._publish_github_api(reply, lead, content, settings)
+            if os.getenv("AGENT_REACH_ALLOW_AUTOPOST") != "1":
+                note = "Automatic posting needs AGENT_REACH_ALLOW_AUTOPOST=1 in the environment. Falling back to manual."
+            elif not can_auto_post(lead.platform):
+                note = f"{lead.platform} has no approved posting API in this app. Falling back to manual."
+            elif lead.platform == "reddit" and self._reddit_creds(settings):
+                return self._publish_reddit_api(reply, lead, content, settings, kind)
+            elif lead.platform == "github" and (settings.github_token or os.getenv("GITHUB_TOKEN")):
+                return self._publish_github_api(reply, lead, content, settings, kind)
+            else:
+                note = "No API credentials in the environment. Falling back to manual."
 
-        # Manual path. Nothing is posted. The person posts it, then confirms.
         reply.status = "pending_manual_post"
         self.storage.save_reply(reply)
         self.storage.log_post(
-            lead.id, reply.id, lead.platform, lead.url, content, settings.mode, "pending_manual_post"
+            lead.id, reply.id, lead.platform, lead.url, content, settings.mode, "pending_manual_post", kind=kind
         )
         return {
             "success": True,
             "action": "copy_and_open",
-            "message": "Copy the reply, post it on the thread, then confirm.",
-            "target_url": lead.url,
+            "message": "Copy the reply, post it from your own account, then confirm.",
+            "note": note,
+            "target_url": self._target_link(reply, lead),
             "text": content,
+            "kind": kind,
         }
 
-    def confirm_manual_post(self, reply: GeneratedReply, lead: LeadQualification) -> Dict[str, Any]:
+    def confirm_manual_post(
+        self, reply: GeneratedReply, lead: LeadQualification, comment_url: str = ""
+    ) -> Dict[str, Any]:
         """The person says they posted the reply. Only now does it count as published."""
         if reply.status != "pending_manual_post":
             raise ValueError("Only a reply waiting for manual posting can be confirmed.")
         reply.status = "published"
         reply.published_at = time.time()
+        if comment_url:
+            reply.published_url = comment_url
         self.storage.save_reply(reply)
+        content = self._final_content(reply)
         self.storage.log_post(
-            lead.id, reply.id, lead.platform, lead.url, self._final_content(reply),
-            "manual", "published", "Confirmed by the user",
+            lead.id, reply.id, lead.platform, lead.url, content,
+            "manual", "published", "Confirmed by the user", kind=self._kind_of(reply, content),
         )
         return {"success": True, "reply": reply.model_dump()}
 
@@ -119,14 +263,24 @@ class CommunityPublisher:
             return reply.product_aware
         return reply.value_first
 
+    def _kind_of(self, reply: GeneratedReply, text: str) -> str:
+        if reply.selected_version in ("value_first", "product_aware") and not reply.edited_reply:
+            return reply.selected_version
+        name = self.profile.name if self.profile else ""
+        return "product_aware" if name and voice.count_product_mentions(text, name) else "value_first"
+
     def _final_content(self, reply: GeneratedReply) -> str:
-        """Product-aware text always carries the disclosure, even after an edit."""
-        text = self._get_reply_content(reply).strip()
-        if reply.selected_version == "product_aware":
-            low = text.lower()
-            if "disclos" not in low and "affiliat" not in low:
-                text = f"{text}\n\n{reply.affiliation_disclosure}"
-        return text
+        """The text goes out as approved. The affiliation sits inside it, written by the owner or the model."""
+        return self._get_reply_content(reply).strip()
+
+    @staticmethod
+    def _target_link(reply: GeneratedReply, lead: LeadQualification) -> str:
+        """A direct link to the comment when the reply answers one, else the thread."""
+        if lead.platform == "reddit" and reply.target_kind == "comment" and reply.target_comment_id:
+            pid = reddit_post_id(lead.url)
+            if pid:
+                return f"https://www.reddit.com/comments/{pid}/_/{reply.target_comment_id}/"
+        return lead.url
 
     # ── Reddit ──
 
@@ -140,16 +294,22 @@ class CommunityPublisher:
         }
         return creds if all(creds.values()) else None
 
-    def _fail(self, lead, reply, content, settings, reason: str) -> Dict[str, Any]:
-        self.storage.log_post(lead.id, reply.id, lead.platform, lead.url, content, settings.mode, "failed", reason)
-        return {"success": False, "reason": reason, "fallback_action": "copy_and_open"}
+    def _fail(self, lead, reply, content, settings, reason: str, kind: str = "") -> Dict[str, Any]:
+        self.storage.log_post(
+            lead.id, reply.id, lead.platform, lead.url, content, settings.mode, "failed", reason, kind=kind
+        )
+        return {"success": False, "reason": reason, "code": "api_failed", "fallback_action": "copy_and_open"}
 
-    def _publish_reddit_api(self, reply, lead, content, settings) -> Dict[str, Any]:
+    def _publish_reddit_api(self, reply, lead, content, settings, kind: str) -> Dict[str, Any]:
         creds = self._reddit_creds(settings)
         pid = reddit_post_id(lead.url)
         if not creds or not pid:
-            return self._fail(lead, reply, content, settings, "Missing Reddit credentials or post id.")
-        ua = f"script:agent-reach-lead:2.1 (by /u/{creds['username']})"
+            return self._fail(lead, reply, content, settings, "Missing Reddit credentials or post id.", kind)
+        ua = f"script:agent-reach-lead:2.2 (by /u/{creds['username']})"
+        parent = (
+            f"t1_{reply.target_comment_id}"
+            if reply.target_kind == "comment" and reply.target_comment_id else f"t3_{pid}"
+        )
         try:
             token_resp = self.session.post(
                 "https://www.reddit.com/api/v1/access_token",
@@ -160,58 +320,66 @@ class CommunityPublisher:
             )
             token = token_resp.json().get("access_token") if token_resp.status_code == 200 else None
             if not token:
-                return self._fail(lead, reply, content, settings, "Reddit login failed.")
+                return self._fail(lead, reply, content, settings, "Reddit login failed.", kind)
 
-            # Check the thread is still open before spending a post.
             meta = RedditMeta(creds["client_id"], creds["client_secret"], session=self.session).fetch([pid])
             health = judge_reddit(meta.get(pid))
             if health.reject in ("archived", "locked", "removed"):
-                return self._fail(lead, reply, content, settings, f"Thread is {health.reject}.")
+                return self._fail(lead, reply, content, settings, f"Thread is {health.reject}.", kind)
 
             resp = self.session.post(
                 "https://oauth.reddit.com/api/comment",
                 headers={"Authorization": f"Bearer {token}", "User-Agent": ua},
-                data={"api_type": "json", "thing_id": f"t3_{pid}", "text": content},
+                data={"api_type": "json", "thing_id": parent, "text": content},
                 timeout=10,
             )
-            # Reddit answers 200 even when it refuses. Read the error list.
             body = resp.json() if resp.status_code == 200 else {}
             errors = (body.get("json") or {}).get("errors") or []
             if resp.status_code != 200 or errors:
-                return self._fail(lead, reply, content, settings, f"Reddit refused the comment: {_short(errors or resp.status_code)}")
+                return self._fail(lead, reply, content, settings, f"Reddit refused the comment: {_short(errors or resp.status_code)}", kind)
+            things = ((body.get("json") or {}).get("data") or {}).get("things") or []
+            data = (things[0].get("data") if things else None) or {}
+            reply.published_comment_id = str(data.get("id") or "")
+            if data.get("permalink"):
+                reply.published_url = "https://www.reddit.com" + data["permalink"]
         except (requests.RequestException, ValueError) as exc:
-            return self._fail(lead, reply, content, settings, f"Reddit request failed: {type(exc).__name__}")
+            return self._fail(lead, reply, content, settings, f"Reddit request failed: {type(exc).__name__}", kind)
 
-        return self._mark_published(reply, lead, content, settings, "Published through the Reddit API.")
+        return self._mark_published(reply, lead, content, settings, "Published through the Reddit API.", kind)
 
     # ── GitHub ──
 
-    def _publish_github_api(self, reply, lead, content, settings) -> Dict[str, Any]:
+    def _publish_github_api(self, reply, lead, content, settings, kind: str) -> Dict[str, Any]:
         m = _GITHUB_ISSUE.search(lead.url)
         if not m:
-            return self._fail(lead, reply, content, settings, "Not a GitHub issue URL.")
+            return self._fail(lead, reply, content, settings, "Not a GitHub issue URL.", kind)
         owner, repo, number = m.groups()
         token = settings.github_token or os.getenv("GITHUB_TOKEN")
         headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
-            "User-Agent": "agent-reach-lead/2.1",
+            "User-Agent": "agent-reach-lead/2.2",
         }
         base = f"https://api.github.com/repos/{owner}/{repo}/issues/{number}"
         try:
             issue = self.session.get(base, headers=headers, timeout=10)
             if issue.status_code == 200 and (issue.json().get("locked") or issue.json().get("state") != "open"):
-                return self._fail(lead, reply, content, settings, "Issue is closed or locked.")
+                return self._fail(lead, reply, content, settings, "Issue is closed or locked.", kind)
             resp = self.session.post(f"{base}/comments", headers=headers, json={"body": content}, timeout=10)
             if resp.status_code not in (200, 201):
-                return self._fail(lead, reply, content, settings, f"GitHub returned {resp.status_code}.")
+                return self._fail(lead, reply, content, settings, f"GitHub returned {resp.status_code}.", kind)
+            created = resp.json()
+            reply.published_comment_id = str(created.get("id") or "")
+            reply.published_url = created.get("html_url") or ""
         except (requests.RequestException, ValueError) as exc:
-            return self._fail(lead, reply, content, settings, f"GitHub request failed: {type(exc).__name__}")
-        return self._mark_published(reply, lead, content, settings, "Published through the GitHub API.")
+            return self._fail(lead, reply, content, settings, f"GitHub request failed: {type(exc).__name__}", kind)
+        return self._mark_published(reply, lead, content, settings, "Published through the GitHub API.", kind)
 
-    def _mark_published(self, reply, lead, content, settings, message: str) -> Dict[str, Any]:
+    def _mark_published(self, reply, lead, content, settings, message: str, kind: str) -> Dict[str, Any]:
         reply.status = "published"
         reply.published_at = time.time()
         self.storage.save_reply(reply)
-        self.storage.log_post(lead.id, reply.id, lead.platform, lead.url, content, settings.mode, "published")
-        return {"success": True, "message": message}
+        self.storage.log_post(
+            lead.id, reply.id, lead.platform, lead.url, content, settings.mode, "published", kind=kind
+        )
+        return {"success": True, "message": message, "url": reply.published_url}

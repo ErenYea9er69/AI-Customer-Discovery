@@ -1,0 +1,164 @@
+# Words and phrases that mark text as machine written.
+# Format: tier|term   (tier is hard or avoid, term is lowercase)
+# hard  = never allowed in a reply. The linter fails the draft.
+# avoid = allowed at most twice per reply across all avoid lists.
+# Source: Wikipedia "Signs of AI writing", moderator and vendor write-ups. These are heuristics, not proof.
+# Edit this file to match your community. One entry per line.
+
+hard|delve
+hard|delves
+hard|delving
+hard|tapestry
+hard|rich tapestry
+hard|testament
+hard|multifaceted
+hard|moreover
+hard|furthermore
+hard|additionally
+hard|consequently
+hard|nevertheless
+hard|nonetheless
+hard|thus
+hard|hence
+hard|it's worth noting
+hard|it is worth noting
+hard|worth noting
+hard|it is important to note
+hard|it's important to note
+hard|important to remember
+hard|in today's fast-paced
+hard|in today's digital age
+hard|in the ever-evolving
+hard|ever-evolving
+hard|ever-changing landscape
+hard|evolving landscape
+hard|digital landscape
+hard|in the realm of
+hard|realm
+hard|navigate
+hard|navigating
+hard|leverage
+hard|leveraging
+hard|robust
+hard|seamless
+hard|seamlessly
+hard|streamline
+hard|streamlined
+hard|streamlining
+hard|game-changer
+hard|game changer
+hard|game-changing
+hard|elevate
+hard|elevates
+hard|foster
+hard|fosters
+hard|fostering
+hard|underscore
+hard|underscores
+hard|underscoring
+hard|showcase
+hard|showcases
+hard|showcasing
+hard|highlighting
+hard|at the end of the day
+hard|i hope this helps
+hard|hope this helps
+hard|hope that helps
+hard|feel free to
+hard|don't hesitate
+hard|do not hesitate
+hard|happy to help
+hard|i'd be happy to
+hard|i would be happy to
+hard|great question
+hard|good question
+hard|excellent question
+hard|that's a great
+hard|let me know if
+hard|as an ai
+hard|as a language model
+hard|dive in
+hard|dive into
+hard|deep dive
+hard|unpack
+hard|unpacking
+hard|plethora
+hard|myriad
+hard|paramount
+hard|pivotal
+hard|crucial
+hard|vital
+hard|vibrant
+hard|bustling
+hard|nestled
+hard|treasure trove
+hard|beacon
+hard|cornerstone
+hard|landscape
+hard|journey
+hard|synergy
+hard|holistic
+hard|cutting-edge
+hard|state-of-the-art
+hard|best practices
+hard|take it to the next level
+hard|next level
+hard|unleash
+hard|supercharge
+hard|empower
+hard|empowers
+hard|empowering
+hard|transformative
+hard|revolutionary
+hard|unparalleled
+hard|meticulous
+hard|meticulously
+hard|commendable
+hard|noteworthy
+hard|intricacies
+hard|nuanced
+hard|in conclusion
+hard|in summary
+hard|to summarize
+hard|a testament to
+hard|plays a crucial role
+hard|plays a vital role
+hard|stands as
+hard|serves as
+hard|boasts
+hard|ensuring
+hard|embark
+hard|not only
+hard|whether you're
+hard|look no further
+hard|here's the thing
+hard|the good news
+hard|the bottom line
+hard|key takeaway
+hard|key takeaways
+
+avoid|overall
+avoid|key
+avoid|ensure
+avoid|comprehensive
+avoid|essential
+avoid|valuable
+avoid|straightforward
+avoid|effective
+avoid|effectively
+avoid|efficient
+avoid|efficiently
+avoid|optimal
+avoid|optimize
+avoid|significant
+avoid|significantly
+avoid|variety
+avoid|diverse
+avoid|ultimately
+avoid|typically
+avoid|generally
+avoid|various
+avoid|numerous
+avoid|utilize
+avoid|facilitate
+avoid|enhance
