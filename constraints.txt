@@ -8,7 +8,7 @@ PyYAML==6.0.3
 yt-dlp==2026.8.19
 yt-dlp-ejs==0.8.0
 mcp==2.3.0
-pydantic>=2.5
+pydantic>=2.14.2
 beautifulsoup4>=4.12
 
 pytest==8.0.0

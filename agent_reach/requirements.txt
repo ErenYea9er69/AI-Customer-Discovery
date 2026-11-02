@@ -1,7 +1,7 @@
 # Found by scanning imports. Versions are not pinned because the original archive had no lock file.
 fastapi
 uvicorn
-pydantic>=2
+pydantic>=2.14.2
 requests
 beautifulsoup4
 pyyaml

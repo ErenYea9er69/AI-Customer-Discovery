@@ -33,7 +33,7 @@ dependencies = [
     "pyyaml>=6.0",
     "yt-dlp[default]==2026.8.19",
     "mcp>=1.27,<3",
-    "pydantic>=2.5",
+    "pydantic>=2.14.2",
     "beautifulsoup4>=4.12",
 ]
 
