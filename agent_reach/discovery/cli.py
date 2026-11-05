@@ -69,9 +69,9 @@ def cmd_dashboard(args: Sequence[str]) -> int:
         import agent_reach.server.app  # noqa: F401
     except ImportError as exc:
         return _fail(
-            "The dashboard module is not installed in this build.",
+            "The dashboard needs extra packages.",
             detail=str(exc),
-            hint="Use the CLI (`agent-reach discovery ...`) or the MCP server (`agent-reach mcp`).",
+            hint='Run: pip install "agent-reach[dashboard]". Or use the CLI or the MCP server.',
         )
     print(f"Starting dashboard at http://{ns.host}:{ns.port}")
     uvicorn.run("agent_reach.server.app:app", host=ns.host, port=ns.port, log_level="info")

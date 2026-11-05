@@ -15,7 +15,7 @@ Frontmatter fields: `name`, `description`, `version`, `stage` (router, profile, 
 ## Change a skill
 
 1. Edit the file.
-2. Run `python scripts/validate_skills.py --write`. It checks the structure, rejects em and en dashes, checks every `reach_` tool name against the server, runs every example through the linter and rewrites the manifest.
+2. Run `python scripts/validate_skills.py --write`. It checks the structure, rejects em and en dashes, checks every `reach_` and `ceo_` tool name against the server, runs every example through the linter and rewrites the manifest.
 3. If you changed a tool, run `python scripts/gen_tool_reference.py`.
 4. Bump the skill's `version`.
 

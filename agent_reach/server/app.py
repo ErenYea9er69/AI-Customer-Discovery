@@ -6,16 +6,18 @@ from __future__ import annotations
 import hmac
 import logging
 import os
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 import time
 from collections import defaultdict
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 from fastapi import FastAPI, HTTPException, Query, Request, Response
-from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from agent_reach import __version__
 from agent_reach.discovery.llm_client import LLMProviderError
 from agent_reach.discovery.models import (
     BusinessProfile,
@@ -30,7 +32,7 @@ log = logging.getLogger("agent_reach.server")
 
 app = FastAPI(
     title="Agent Reach - Customer Discovery & Lead Intelligence API",
-    version="2.1.0",
+    version=__version__,
 )
 
 # Configure secure CORS origins (default to local dashboard ports or explicit env)
@@ -279,7 +281,7 @@ def list_leads(
         limit=limit,
         offset=offset,
     )
-    return {"leads": [l.model_dump() for l in leads]}
+    return {"leads": [lead.model_dump() for lead in leads]}
 
 
 @app.get("/api/leads/counts")
@@ -406,9 +408,10 @@ def get_settings():
             "configured": orchestrator.llm.is_configured,
         },
     )
-    if isinstance(llm, dict) and "api_key" in llm:
-        llm["has_api_key"] = bool(llm.get("api_key"))
-        llm["api_key"] = MASKED_SECRET
+    if isinstance(llm, dict):
+        llm.pop("api_key", None)
+        llm["has_api_key"] = bool(orchestrator.llm.api_key)
+        llm["api_key"] = MASKED_SECRET if llm["has_api_key"] else ""
     from agent_reach.mcp.helpers import get_or_init_mcp_settings
     mcp_cfg = get_or_init_mcp_settings(storage)
     return {"posting_settings": masked_posting, "llm_settings": llm, "mcp_settings": mcp_cfg}
@@ -416,25 +419,40 @@ def get_settings():
 
 @app.post("/api/settings")
 def update_settings(data: UpdateSettingsRequest):
+    ignored: List[str] = []
     if data.posting_settings is not None:
         new_dict = data.posting_settings.model_dump()
-        existing_dict = storage.get_setting("posting_settings", {})
-        # Preserve existing secrets if incoming is masked or omitted
-        for field in ("reddit_password", "reddit_client_secret", "github_token"):
-            if new_dict.get(field) in (MASKED_SECRET, None) and existing_dict.get(field):
-                new_dict[field] = existing_dict[field]
-        storage.set_setting("posting_settings", new_dict)
+        for field in ("reddit_client_id", "reddit_client_secret", "reddit_username", "reddit_password", "github_token"):
+            if new_dict.get(field) not in (MASKED_SECRET, None, ""):
+                ignored.append(field)
+        # Credentials are never written to the database. save_posting_settings drops them. Set them in the environment.
+        storage.save_posting_settings(PostingSettings.model_validate(new_dict))
     if data.llm_settings is not None:
         new_llm = dict(data.llm_settings)
-        existing_llm = storage.get_setting("llm_settings", {})
-        if new_llm.get("api_key") in (MASKED_SECRET, None) and existing_llm.get("api_key"):
-            new_llm["api_key"] = existing_llm["api_key"]
+        key = new_llm.pop("api_key", None)
+        new_llm.pop("has_api_key", None)
+        new_llm.pop("configured", None)
+        provider = str(new_llm.get("provider") or "").strip().lower()
+        if key not in (MASKED_SECRET, None, ""):
+            if not provider:
+                raise HTTPException(status_code=400, detail="Choose a provider before you save its key.")
+            try:
+                from agent_reach.config import Config
+
+                Config().set(f"{provider}_api_key", str(key))  # owner-only file, never the database
+            except Exception as exc:
+                log.warning("saving the model key failed: %s", str(exc)[:160])
+                raise HTTPException(status_code=500, detail="Could not save the key to the private config file.")
         storage.set_setting("llm_settings", new_llm)
         orchestrator.reload_llm()   # new provider or key applies without a restart
     if data.mcp_settings is not None:
         from agent_reach.mcp.helpers import update_mcp_settings
         update_mcp_settings(storage, data.mcp_settings)
-    return {"ok": True}
+    result: Dict[str, Any] = {"ok": True}
+    if ignored:
+        result["ignored_credentials"] = ignored
+        result["note"] = "Posting credentials are read from the environment (see .env.example). They are not stored."
+    return result
 
 
 @app.get("/api/platforms")
@@ -457,6 +475,116 @@ def export_leads(format: str = Query("json"), min_score: int = Query(0)):
     else:
         json_data = storage.export_leads_json(min_score=min_score)
         return Response(content=json_data, media_type="application/json", headers={"Content-Disposition": "attachment; filename=leads.json"})
+
+
+# ── Endpoints: the company (talk to the CEO) ──
+#
+# The owner's chat box talks to the CEO through POST /api/team/ask. The CEO plans the work, the specialists
+# run on the server's model, and the verifier checks every result. The front end polls the directive.
+
+from agent_reach.mcp import server as _mcp_server  # noqa: E402
+from agent_reach.team.engine import TeamEngine  # noqa: E402
+
+# The specialists' tools read their storage from the MCP server module. Point it at this app's storage.
+_mcp_server._storage_instance = storage
+_mcp_server._service = orchestrator
+team = TeamEngine(lambda: orchestrator)
+
+
+class AskCeoRequest(BaseModel):
+    message: str = Field(min_length=2, max_length=6000)
+
+
+class CheckpointRequest(BaseModel):
+    decision: str = Field(pattern="^(approve|reject)$")
+    message: str = Field(min_length=1, max_length=600, description="The owner's own words")
+
+
+def _team_result(result: Dict[str, Any]) -> Dict[str, Any]:
+    if isinstance(result, dict) and result.get("error"):
+        raise HTTPException(status_code=400, detail=str(result["error"]))
+    return result
+
+
+@app.post("/api/team/ask")
+def team_ask(req: AskCeoRequest, request: Request):
+    """Send a message to the CEO. Returns the plan. Work continues in the background when a model is set."""
+    if not rate_limiter.check(f"team_ask:{_client_ip(request)}", max_requests=20):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded.")
+    return _team_result(team.ask(req.message, background=True))
+
+
+@app.get("/api/team/directives")
+def team_directives():
+    return team.status("")
+
+
+@app.get("/api/team/directives/{directive_id}")
+def team_directive(directive_id: str):
+    return _team_result(team.status(directive_id))
+
+
+@app.post("/api/team/directives/{directive_id}/run")
+def team_run(directive_id: str, request: Request):
+    if not rate_limiter.check(f"team_run:{_client_ip(request)}", max_requests=20):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded.")
+    if team.store.get_directive(directive_id) is None:
+        raise HTTPException(status_code=404, detail="No such directive.")
+    import threading
+
+    threading.Thread(target=team.run, args=(directive_id,), daemon=True).start()
+    return {"started": True, "directive_id": directive_id}
+
+
+@app.get("/api/team/directives/{directive_id}/report")
+def team_report(directive_id: str):
+    return _team_result(team.report(directive_id))
+
+
+@app.post("/api/team/tasks/{task_id}/checkpoint")
+def team_checkpoint(task_id: str, req: CheckpointRequest):
+    # The owner clicks this in their own browser, so the answer is recorded as coming from the dashboard.
+    return _team_result(team.resolve_checkpoint(task_id, req.decision, req.message, via="dashboard"))
+
+
+@app.get("/api/team/directives/{directive_id}/next")
+def team_next(directive_id: str):
+    """The one next action for a directive: work, ask_owner, decide, run, report, wait or stop."""
+    return _team_result(team.next_step(directive_id))
+
+
+class CancelRequest(BaseModel):
+    reason: str = Field(default="", max_length=200)
+
+
+@app.post("/api/team/directives/{directive_id}/cancel")
+def team_cancel(directive_id: str, req: CancelRequest):
+    return _team_result(team.cancel_directive(directive_id, req.reason))
+
+
+class MemoryRequest(BaseModel):
+    text: str = Field(min_length=8, max_length=400)
+
+
+@app.get("/api/team/memory")
+def team_memory():
+    return team.recall()
+
+
+@app.post("/api/team/memory")
+def team_memory_add(req: MemoryRequest):
+    """Store a standing preference. Every specialist sees it in its work order."""
+    return _team_result(team.remember(req.text))
+
+
+@app.delete("/api/team/memory/{memory_id}")
+def team_memory_forget(memory_id: int):
+    return team.forget(memory_id)
+
+
+@app.get("/api/team/roster")
+def team_roster():
+    return team.describe_team()
 
 
 # ── Serve Built Frontend if Present ──

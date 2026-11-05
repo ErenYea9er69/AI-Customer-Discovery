@@ -163,6 +163,13 @@ class DiscoveryStorage:
                 conn.execute("ALTER TABLE posting_logs ADD COLUMN kind TEXT DEFAULT ''")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_replies_lead ON replies (lead_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_posting_platform ON posting_logs (platform, status, created_at)")
+        self._scrub_stored_secrets()
+
+    def _scrub_stored_secrets(self) -> None:
+        """Older versions of the dashboard saved Reddit and GitHub credentials in the database. Remove them."""
+        raw = self.get_setting("posting_settings", None)
+        if isinstance(raw, dict) and any(raw.get(k) for k in _SECRET_FIELDS):
+            self.set_setting("posting_settings", {k: v for k, v in raw.items() if k not in _SECRET_FIELDS})
 
     # ── Business Profiles ──
 
@@ -292,6 +299,19 @@ class DiscoveryStorage:
                 "SELECT data FROM discovered_items WHERE url = ? OR url = ?", (canonical_url(url), url)
             ).fetchone()
             return DiscoveredItem.model_validate_json(row["data"]) if row else None
+
+    def list_discovered_items(self, limit: int = 50, platform: Optional[str] = None) -> List[DiscoveredItem]:
+        """Newest harvested threads first."""
+        query = "SELECT data FROM discovered_items"
+        params: List[Any] = []
+        if platform:
+            query += " WHERE platform = ?"
+            params.append(platform)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(max(1, min(limit, 500)))
+        with self._connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [DiscoveredItem.model_validate_json(r["data"]) for r in rows]
 
     def update_discovered_item(self, item: DiscoveredItem) -> None:
         with self._connection() as conn:

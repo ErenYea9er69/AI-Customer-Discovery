@@ -1,23 +1,38 @@
 {
   "pack_version": "1.0.0",
-  "sha256": "a3f33a06d74069965ceb927d27452372335cddf2eceb3ddda345305c259bbc52",
+  "sha256": "ff2bd24a293580425e702702f9510080fa42deb1eb5bdb9d2cbd56c9d3a9eca1",
   "skills": [
+    {
+      "description": "How the CEO runs the team: plan a directive, hand work to specialists, verify every output, stop at owner checkpoints and report only verified work. Load it first when the owner makes any request.",
+      "name": "company-operations",
+      "prompt_words": 793,
+      "references": [
+        "references/verification-rules.md"
+      ],
+      "sha256": "ccd8880a92fa61efee17ba944d2f59aa04f128bf00c62be5af8489a3584406ff",
+      "stage": "router",
+      "used_by": [
+        "mcp",
+        "pipeline"
+      ],
+      "version": "1.1.0"
+    },
     {
       "description": "Orchestrates the full pipeline from business profile to an approved community reply. Load it first when finding customers, running a campaign, or deciding which other skill applies to the current step.",
       "name": "customer-discovery",
-      "prompt_words": 569,
+      "prompt_words": 591,
       "references": [
         "references/mcp-workflow.md",
         "references/pipeline-workflow.md",
         "references/tool-reference.md"
       ],
-      "sha256": "f461c9daddf5e54bc84f7502613d309efeb944f34b772fc5ac0f3ddb742923ec",
+      "sha256": "2bb85407b82b7a91dc5a4a9e06e910faffd48f047282c127174af6091c553f4c",
       "stage": "router",
       "used_by": [
         "pipeline",
         "mcp"
       ],
-      "version": "1.0.0"
+      "version": "1.1.0"
     },
     {
       "description": "Turns a business website or a product description into a verified profile: problems solved, ideal customer, pain vocabulary, alternatives and a not-for list. Use before any search.",

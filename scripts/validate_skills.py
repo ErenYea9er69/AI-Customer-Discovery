@@ -5,7 +5,7 @@ Checks:
   1. every SKILL.md has the required frontmatter and a prompt block
   2. every listed reference file exists, and no file sits unlisted
   3. no em or en dashes in any skill file
-  4. every `reach_*` tool named in a skill exists in the MCP server
+  4. every `reach_*` and `ceo_*` tool named in a skill exists in the MCP server
   5. every good example passes the linter and every bad example fails it
   6. skills/manifest.json matches the content (use --write to refresh it)
 """
@@ -37,8 +37,8 @@ def main() -> int:
 
     errors: list[str] = []
     skills = skillpack.list_skills()
-    if len(skills) < 7:
-        errors.append(f"Expected at least 7 skills, found {len(skills)}.")
+    if len(skills) < 8:
+        errors.append(f"Expected at least 8 skills, found {len(skills)}.")
 
     for skill in skills:
         folder = skill.path.parent
@@ -62,11 +62,12 @@ def main() -> int:
 
     from agent_reach.mcp import server
 
+    # The validator sees every tool because it never calls create_mcp_server(), which hides specialist tools.
     tool_names = {t.name for t in asyncio.run(server.mcp.list_tools())}
     for path in SKILLS.rglob("*.md"):
         if path.name == "tool-reference.md":
             continue
-        for name in set(re.findall(r"\breach_[a-z_]+\b", path.read_text(encoding="utf-8"))):
+        for name in set(re.findall(r"\b(?:reach|ceo)_[a-z_]+\b", path.read_text(encoding="utf-8"))):
             if name not in tool_names:
                 errors.append(f"{path.relative_to(ROOT)}: names unknown tool {name}.")
 

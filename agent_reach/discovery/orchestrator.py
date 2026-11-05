@@ -7,7 +7,7 @@ import logging
 import threading
 import time
 from collections import Counter
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 from agent_reach.discovery import thread_comments, voice
@@ -58,6 +58,7 @@ class DiscoveryOrchestrator:
     def reload_llm(self) -> None:
         """Rebuild every LLM-backed component. Call after settings change."""
         cfg = self.storage.get_setting("llm_settings", {}) or {}
+        cfg = self._move_key_out_of_database(cfg)
         self.llm = LLMClient(
             provider=cfg.get("provider") or None,
             model=cfg.get("model") or None,
@@ -66,6 +67,24 @@ class DiscoveryOrchestrator:
         self.business_engine = BusinessEngine(self.llm)
         self.qualifier = LeadQualifier(self.llm)
         self.reply_generator = ReplyGenerator(self.llm)
+
+    def _move_key_out_of_database(self, cfg: Dict[str, Any]) -> Dict[str, Any]:
+        """A model key never stays in the database. It moves to the owner-only config file."""
+        key = cfg.get("api_key")
+        if not key:
+            return cfg
+        provider = str(cfg.get("provider") or "").strip().lower()
+        try:
+            from agent_reach.config import Config
+
+            if provider:
+                Config().set(f"{provider}_api_key", str(key))
+            clean = {k: v for k, v in cfg.items() if k != "api_key"}
+            self.storage.set_setting("llm_settings", clean)
+            return {**clean, "api_key": key}  # this run still uses it
+        except Exception as exc:  # keep working. The key stays where it was.
+            log.warning("could not move the model key to the config file: %s", str(exc)[:160])
+            return cfg
 
     # ── Reply preferences and voice ──
 

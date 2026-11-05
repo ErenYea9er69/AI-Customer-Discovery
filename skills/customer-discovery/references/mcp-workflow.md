@@ -1,6 +1,16 @@
 # MCP workflow: call by call
 
-Use this sequence when a host AI (Claude Code, Cursor, Claude Desktop, VS Code) drives the server. The host reasons. The server fetches public pages, stores results, checks scores and writing, and refuses bad writes. Every tool name below exists in the server. `references/tool-reference.md` lists all arguments.
+Two ways to drive the server exist. Company mode is the default. The owner talks to you, the CEO, and the team does the work through verified tasks. Load `company-operations` and follow it. Full mode (`agent-reach mcp --mode full`) shows every low level tool and you run the stages yourself, as described from section 0 on.
+
+## Company mode in five calls
+
+1. `ceo_open_directive` with the owner's words. It returns the plan as tasks.
+2. With a server model, the team runs the plan. Without one, call `ceo_next_work_order`, launch tools with `ceo_call_tool`, then hand in the result with `ceo_submit_result`.
+3. When the verifier lists issues, fix them and submit again.
+4. At a checkpoint, ask the owner and call `ceo_resolve_checkpoint` with the owner's words.
+5. Call `ceo_report`. The owner approves a reply with `reach_approve_reply`, the owner posts it, and you record it with `reach_confirm_posted`.
+
+The rest of this page is the full mode sequence. Use it when a host AI (Claude Code, Cursor, Claude Desktop, VS Code) drives the server. The host reasons. The server fetches public pages, stores results, checks scores and writing, and refuses bad writes. Every tool name below exists in the server. `references/tool-reference.md` lists all arguments.
 
 ## 0. Setup check
 

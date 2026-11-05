@@ -1,49 +1,140 @@
 # -*- coding: utf-8 -*-
-"""Console entry point for `agent-reach`; all commands live in agent_reach.runtime.cli."""
+"""Console entry point for `agent-reach`.
 
+    agent-reach mcp [--mode company|full]   MCP server over stdio
+    agent-reach team ...                    talk to the CEO from the terminal
+    agent-reach discovery ...               the step by step pipeline
+    agent-reach dashboard                   the API for the dashboard (needs the dashboard extra)
+    agent-reach doctor                      check the install
+    agent-reach version
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
 import os
 import sys
+from typing import List, Optional, Sequence
+
+from agent_reach import __version__
+
+HELP = """agent-reach: finds customers in public communities and drafts honest replies.
+
+  agent-reach mcp [--mode company|full]  run the MCP server over stdio (Claude, Cursor, VS Code, Antigravity)
+  agent-reach team <command>             talk to the CEO: ask, status, run, report, checkpoint, roster
+  agent-reach discovery <command>        step by step pipeline: profile, plan, search, leads, reply, lint, approve, post,
+                                         confirm, voice, prefs, accounts, rules, posting, skills, check, export, analytics
+  agent-reach dashboard [--port N]       API for the dashboard (pip install "agent-reach[dashboard]")
+  agent-reach doctor                     check the install and the keys
+  agent-reach version
+
+Output is JSON. Add -v for logs on stderr.
+"""
 
 
-def _ensure_utf8_console():
-    """Best-effort Windows console UTF-8 setup for CLI runtime only."""
-    if sys.platform != "win32":
-        return
-    # Avoid interfering with pytest/captured streams.
-    if os.environ.get("PYTEST_CURRENT_TEST"):
+def _ensure_utf8_console() -> None:
+    if sys.platform != "win32" or os.environ.get("PYTEST_CURRENT_TEST"):
         return
     try:
         import io
-        if hasattr(sys.stdout, "buffer"):
-            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-        if hasattr(sys.stderr, "buffer"):
-            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
+        for name in ("stdout", "stderr"):
+            stream = getattr(sys, name)
+            if hasattr(stream, "buffer"):
+                setattr(sys, name, io.TextIOWrapper(stream.buffer, encoding="utf-8", errors="replace"))
     except Exception:
-        # Do not crash CLI just because encoding patch failed.
         pass
 
 
-def _configure_logging(verbose: bool = False):
-    """Suppress loguru output unless --verbose is set."""
+def _cmd_mcp(args: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(prog="agent-reach mcp", description="Run the MCP server over stdio.")
+    parser.add_argument(
+        "--mode", choices=["company", "full"], default=None,
+        help="company (default): the host talks to the CEO tools. full: every low level tool is visible too.",
+    )
+    ns = parser.parse_args(list(args))
+    from agent_reach.mcp import server
+
+    if ns.mode:
+        os.environ["AGENT_REACH_MCP_MODE"] = ns.mode
+    server.main()
+    return 0
+
+
+def _cmd_doctor(_: Sequence[str]) -> int:
+    from agent_reach.discovery import skillpack
+    from agent_reach.discovery.llm_client import LLMClient
+    from agent_reach.discovery.storage import DEFAULT_DB_PATH
+
+    report: dict = {"version": __version__, "python": sys.version.split()[0]}
     try:
-        from loguru import logger
-        logger.remove()  # Remove default stderr handler
-        if verbose:
-            logger.add(sys.stderr, level="INFO")
+        from importlib.metadata import version
+
+        report["mcp_sdk"] = version("mcp")
+    except Exception:
+        report["mcp_sdk"] = "missing"
+    llm = LLMClient()
+    report["model"] = {"provider": llm.provider or None, "configured": llm.is_configured, "mode": "server" if llm.is_configured else "host"}
+    report["search_keys"] = {k: bool(os.getenv(k)) for k in ("SERPER_API_KEY", "BRAVE_API_KEY", "TAVILY_API_KEY")}
+    report["database"] = str(os.getenv("AGENT_REACH_DISCOVERY_DB") or DEFAULT_DB_PATH)
+    try:
+        report["skills"] = len(skillpack.list_skills())
+    except Exception as exc:
+        report["skills"] = f"error: {exc}"
+    try:
+        import asyncio
+
+        from agent_reach.mcp import server
+
+        report["mcp_tools_full"] = len(asyncio.run(server.mcp.list_tools()))
+    except Exception as exc:
+        report["mcp_tools_full"] = f"error: {exc}"
+    try:
+        import fastapi  # noqa: F401
+        import uvicorn  # noqa: F401
+
+        report["dashboard"] = "installed"
     except ImportError:
-        pass
+        report["dashboard"] = 'not installed (pip install "agent-reach[dashboard]")'
+    print(json.dumps(report, indent=2))
+    return 0
 
 
-def main():
+def main(argv: Optional[Sequence[str]] = None) -> None:
     _ensure_utf8_console()
-    argv = sys.argv[1:]
-    verbose = any(a in ("-v", "--verbose") for a in argv)
-    argv = [a for a in argv if a not in ("-v", "--verbose")]
-    _configure_logging(verbose)
+    args: List[str] = list(sys.argv[1:] if argv is None else argv)
+    verbose = any(a in ("-v", "--verbose") for a in args)
+    args = [a for a in args if a not in ("-v", "--verbose")]
+    import logging
 
-    from agent_reach.runtime import cli as unified
+    logging.basicConfig(level=logging.INFO if verbose else logging.WARNING, stream=sys.stderr)
 
-    sys.exit(unified.main(argv))
+    if not args or args[0] in ("help", "-h", "--help"):
+        sys.stdout.write(HELP)
+        sys.exit(0)
+    head, rest = args[0], args[1:]
+    if head == "version":
+        print(__version__)
+        sys.exit(0)
+    if head == "mcp":
+        sys.exit(_cmd_mcp(rest))
+    if head == "doctor":
+        sys.exit(_cmd_doctor(rest))
+    if head == "team":
+        from agent_reach.team.cli import cmd_team
+
+        sys.exit(cmd_team(rest))
+    if head == "dashboard":
+        from agent_reach.discovery.cli import cmd_dashboard
+
+        sys.exit(cmd_dashboard(rest))
+    if head in ("discovery", "lead-gen"):
+        from agent_reach.discovery.cli import cmd_discovery
+
+        sys.exit(cmd_discovery(rest))
+    print(json.dumps({"error": f"Unknown command: {head}", "hint": "Run `agent-reach help`."}))
+    sys.exit(1)
 
 
 if __name__ == "__main__":

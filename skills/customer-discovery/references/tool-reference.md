@@ -2,6 +2,229 @@
 
 Generated from the server by `scripts/gen_tool_reference.py`. Do not edit by hand.
 
+## ceo_call_tool
+
+Effect: reads public pages and writes locally.
+
+Launch one tool inside a task. The task's role decides which tools are allowed.
+
+The result carries an evidence_id. Cite it in your claims. Restricted tools (publish, approve, settings) are refused.
+
+Arguments:
+
+- `task_id` (string, required)
+- `tool` (string, required)
+- `args` (object, default None)
+
+## ceo_cancel_directive
+
+Effect: writes locally.
+
+Cancel an unfinished directive when the owner says stop. Open tasks end. Verified work stays in the report.
+
+Arguments:
+
+- `directive_id` (string, required)
+- `reason` (string, default '')
+
+## ceo_create_playbook
+
+Effect: writes locally.
+
+Save a plan for repeated requests. Each step: {key, role, title, instruction, depends_on: [keys], acceptance: [...]}.
+
+A step with kind "checkpoint" waits for the owner. Use the plan later with ceo_open_directive(playbook=name).
+
+Arguments:
+
+- `name` (string, required)
+- `description` (string, required)
+- `steps` (array, required)
+
+## ceo_create_task
+
+Effect: writes locally.
+
+Create a task for a specialist. The instruction becomes part of that specialist's brief.
+
+depends_on: task ids that must finish first. acceptance: short checks the output must meet.
+
+Arguments:
+
+- `directive_id` (string, required)
+- `role` (string, required)
+- `title` (string, required)
+- `instruction` (string, default '')
+- `depends_on` (array, default None)
+- `acceptance` (array, default None)
+- `max_attempts` (integer, default 3)
+
+## ceo_hire_specialist
+
+Effect: writes locally.
+
+Create a specialist with its own prompt and tool list. Restricted tools are never allowed.
+
+charter: what it does and what it never does. skills: names from reach_list_skills. tools: names from ceo_list_team.
+
+Arguments:
+
+- `name` (string, required)
+- `title` (string, required)
+- `charter` (string, required)
+- `skills` (array, default None)
+- `tools` (array, default None)
+- `tier` (string, default 'smart')
+
+## ceo_list_team
+
+Effect: reads only.
+
+List the specialists with their tools, the saved plans, and (when asked) every tool a specialist may hold.
+
+Arguments:
+
+- `include_tools` (boolean, default False)
+
+## ceo_memory
+
+Effect: writes locally.
+
+Keep the owner's standing preferences and the team's lessons. action: list, add or forget.
+
+add stores the owner's preference (text, at least 8 characters) such as "never mention pricing in a first reply".
+Every specialist sees it in its work order. Memory guides the work. It is never evidence.
+
+Arguments:
+
+- `action` (string, default 'list')
+- `text` (string, default '')
+- `memory_id` (integer, default 0)
+
+## ceo_next_step
+
+Effect: writes locally.
+
+Ask what to do now. The answer is one action: work, ask_owner, decide, run, report, wait or stop.
+
+Follow it exactly, then call this again. It also returns progress and puts stalled tasks back in the queue.
+
+Arguments:
+
+- `directive_id` (string, required)
+
+## ceo_next_work_order
+
+Effect: writes locally.
+
+Get the brief for a specialist task: role prompt, instruction, inputs, allowed tools, output contract.
+
+Do the work as that specialist. Launch tools with ceo_call_tool, then hand in the result with ceo_submit_result.
+Pass directive_id for the next ready task, or task_id for one task.
+
+Arguments:
+
+- `directive_id` (string, default '')
+- `task_id` (string, default '')
+
+## ceo_open_directive
+
+Effect: reads public pages and writes locally.
+
+Start here for every owner request. The CEO plans the work as tasks for specialists.
+
+request: the owner's words, unchanged. intent: find_customers, draft_replies, review_drafts, weekly_review,
+setup_voice, market_research, follow_up, status or custom (leave empty to let the CEO decide).
+playbook: a named plan from ceo_list_team. auto_run: when the server has its own model, run the plan until
+it needs the owner. Without one, you act as the specialists: call ceo_next_step and follow it.
+The answer carries readiness notes (what the company lacks) and the task plan.
+
+Arguments:
+
+- `request` (string, required)
+- `intent` (string, default '')
+- `playbook` (string, default '')
+- `auto_run` (boolean, default True)
+
+## ceo_report
+
+Effect: reads only.
+
+Report for the owner: headline, trust level, lead cards (thread, quote, draft, gate), what was tried when
+nothing was found, verified work, work that did not pass, stats and the owner's next actions.
+
+Only verified work appears as done. Show the headline and the lead cards. Do not add results of your own.
+
+Arguments:
+
+- `directive_id` (string, required)
+
+## ceo_resolve_checkpoint
+
+Effect: writes locally.
+
+Record the owner's decision on a checkpoint such as confirming the profile.
+
+decision: approve or reject. owner_message: the owner's own words. Ask the owner. Never answer for them.
+A rejection sends the work back to the specialist with the owner's feedback.
+
+Arguments:
+
+- `task_id` (string, required)
+- `decision` (string, required)
+- `owner_message` (string, required)
+
+## ceo_run
+
+Effect: reads public pages and writes locally.
+
+Run ready tasks with the server's own model until the plan needs the owner, fails, or finishes.
+
+Needs an LLM key on the server. Without one, use ceo_next_work_order.
+
+Arguments:
+
+- `directive_id` (string, required)
+- `max_tasks` (integer, default 12)
+
+## ceo_status
+
+Effect: reads only.
+
+List recent directives, or show one directive with its tasks, status and recent events.
+
+Arguments:
+
+- `directive_id` (string, default '')
+
+## ceo_submit_result
+
+Effect: writes locally.
+
+Hand in the result of a task. The verifier checks it and answers accepted or a list of issues.
+
+result: {"summary": "...", "claims": [{"text": "...", "evidence_ids": ["E1"], "quote": "..."}], "data": {...}}.
+Fix every issue and submit again. After three failed tries the task goes back to the CEO.
+
+Arguments:
+
+- `task_id` (string, required)
+- `result` (object, required)
+
+## ceo_update_task
+
+Effect: writes locally.
+
+Decide what happens to a task. action: retry (optionally with a new instruction), reassign (needs role) or skip.
+
+Arguments:
+
+- `task_id` (string, required)
+- `action` (string, required)
+- `instruction` (string, default '')
+- `role` (string, default '')
+- `reason` (string, default '')
+
 ## reach_account_health
 
 Effect: reads public pages and writes locally.

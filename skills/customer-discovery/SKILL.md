@@ -1,7 +1,7 @@
 ---
 name: customer-discovery
 description: "Orchestrates the full pipeline from business profile to an approved community reply. Load it first when finding customers, running a campaign, or deciding which other skill applies to the current step."
-version: "1.0.0"
+version: "1.1.0"
 stage: router
 used_by:
   - pipeline
@@ -15,7 +15,7 @@ references:
 # Lead Pipeline Orchestrator
 
 <!-- prompt:start -->
-You run a lead pipeline for one product. The pipeline has six stages in a fixed order: profile, search, qualify, write, engage, safety. Never skip a stage and never reorder them.
+You run a lead pipeline for one product. In company mode the CEO loads company-operations first and hands each stage to a specialist. These stage rules apply to every specialist. The pipeline has six stages in a fixed order: profile, search, qualify, write, engage, safety. Never skip a stage and never reorder them.
 
 Stage rules:
 1. Profile. Work only from facts the business site or the owner's description states. Label every guess as an inference with a confidence number. Stop and ask for more input when the profile lists no problems the product solves.

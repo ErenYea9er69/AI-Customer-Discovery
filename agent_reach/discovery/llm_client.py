@@ -27,7 +27,7 @@ log = logging.getLogger("agent_reach.discovery")
 # Ordered candidates per tier. Vendors retire models often (Groq retired
 # llama-3.3-70b-versatile on 2026-08-16, DeepSeek retired deepseek-chat on 2026-07-24).
 # Names were taken from vendor deprecation pages and docs in 2026. Run
-# `agent-reach discovery llm-check` to confirm the names work for your key.
+# `agent-reach discovery check llm` to confirm the names work for your key.
 MODEL_CANDIDATES: Dict[str, Dict[str, List[str]]] = {
     "anthropic": {
         "fast": ["claude-haiku-5-5", "claude-sonnet-5-5"],

@@ -192,10 +192,10 @@ def ensure_dashboard_running(
     """Check if the FastAPI dashboard is running, start it in background if not, and optionally open browser."""
     url = f"http://{host}:{port}"
 
-    if importlib.util.find_spec("agent_reach.server") is None:
+    if importlib.util.find_spec("fastapi") is None or importlib.util.find_spec("uvicorn") is None:
         return {
             "status": "unavailable",
-            "message": "The dashboard module is not installed in this build. Use the CLI or the MCP tools.",
+            "message": 'The dashboard needs extra packages. Run: pip install "agent-reach[dashboard]".',
         }
 
     if is_port_in_use(port, host):

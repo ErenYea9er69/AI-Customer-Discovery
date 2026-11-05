@@ -8,13 +8,14 @@ text, published_at and author.
 
 Request and response shapes follow each vendor's public API docs. Keyed
 providers were not called live while this module was written, so the unit tests
-use recorded response shapes. Run `agent-reach discovery search-check` to test
+use recorded response shapes. Run `agent-reach discovery check search` to test
 your keys.
 """
 
 from __future__ import annotations
 
 import datetime
+import json
 import logging
 import os
 import re
@@ -165,13 +166,78 @@ class TavilySearch(SearchBackend):
         ][:limit]
 
 
+_EXA_MCP = "https://mcp.exa.ai/mcp"
+_EXA_HEADER_RE = re.compile(r"^(Title|URL|Published|Author):\s*(.*)$")
+_EXA_MAX_BYTES = 2 * 1024 * 1024
+
+
+def parse_exa_text(text: str) -> List[Dict[str, Any]]:
+    """Split Exa's `Title: / URL: / Published: / Author:` blocks into search items."""
+    items: List[Dict[str, Any]] = []
+    for block in re.split(r"\n(?=Title: )", "\n" + (text or "").strip()):
+        block = block.strip()
+        if not block.startswith("Title:"):
+            continue
+        fields: Dict[str, str] = {}
+        lines = block.splitlines()
+        i = 0
+        while i < len(lines):
+            m = _EXA_HEADER_RE.match(lines[i])
+            if not m:
+                break
+            fields[m.group(1).lower()] = m.group(2).strip()
+            i += 1
+        body = [ln for ln in lines[i:] if ln.strip() not in ("Highlights:", "Text:")]
+
+        def clean(value: Optional[str]) -> Optional[str]:
+            return None if value in (None, "", "N/A") else value
+
+        url = clean(fields.get("url"))
+        if not url:
+            continue
+        items.append({
+            "title": clean(fields.get("title")) or "",
+            "url": url,
+            "text": "\n".join(body).strip(),
+            "published_at": parse_date(clean(fields.get("published"))),
+            "author": clean(fields.get("author")),
+        })
+    return items
+
+
 class ExaSearch(SearchBackend):
+    """Exa's free hosted MCP endpoint. It needs no key and rate limits quickly."""
+
     name = "exa"
 
     def search(self, query, limit, days=None):
-        from agent_reach.channels.web import WebChannel
-
-        return WebChannel()._exa_search(query=query, limit=limit, timeout=12) or []
+        body = {
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "web_search_exa", "arguments": {"query": query, "objective": query, "numResults": limit}},
+        }
+        resp = self.session.post(
+            _EXA_MCP, json=body, timeout=12,
+            headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream", "User-Agent": USER_AGENT},
+        )
+        if resp.status_code == 429:
+            raise requests.HTTPError("exa rate limited (http 429)")
+        if resp.status_code != 200:
+            raise requests.HTTPError(f"exa http {resp.status_code}")
+        if len(resp.content) > _EXA_MAX_BYTES:
+            raise requests.HTTPError("exa response too large")
+        text = resp.content.decode("utf-8", errors="replace")
+        payloads = [ln[5:].strip() for ln in text.splitlines() if ln.startswith("data:")] or [text]
+        try:
+            msg = json.loads(payloads[-1])
+        except ValueError as exc:
+            raise requests.HTTPError("exa returned a body that is not JSON") from exc
+        if "error" in msg:
+            raise requests.HTTPError(f"exa: {str((msg['error'] or {}).get('message', msg['error']))[:200]}")
+        result = msg.get("result") or {}
+        if result.get("isError"):
+            raise requests.HTTPError("exa tool error")
+        content = "\n".join(c.get("text", "") for c in result.get("content", []) if c.get("type") == "text")
+        return parse_exa_text(content)[:limit]
 
 
 class DuckDuckGoSearch(SearchBackend):

@@ -1,6 +1,6 @@
 # MCP setup
 
-The MCP server runs over stdio. Your host AI does the reasoning. The server fetches public pages, stores results, checks scores and writing, and gates posting. You need no model key for it.
+The MCP server runs over stdio. Your host AI is the CEO. The owner talks to it, and it runs the team through MCP tools. The server fetches public pages, stores results, keeps the evidence ledger, verifies every specialist output, checks scores and writing, and gates posting. You need no model key for it. With a key, the specialists run on the server's model.
 
 ## Install
 
@@ -48,34 +48,47 @@ The repository ships `.mcp.json` and `.cursor/mcp.json` with this entry.
 
 Optional environment values go in the `env` block: `SERPER_API_KEY`, `BRAVE_API_KEY` or `TAVILY_API_KEY` for better search, and a model key only if you want the server's own `reach_analyze_business` or batch qualification to use a model. See `.env.example`.
 
+## Modes
+
+| Mode | Command | What the host sees |
+| --- | --- | --- |
+| company (default) | `agent-reach mcp` | The 16 `ceo_*` tools and the owner tools: status, approve, publish, confirm, accounts, rules, settings, preferences, export, voice samples, leads, skills. Specialist tools stay inside the team. |
+| full | `agent-reach mcp --mode full` or `AGENT_REACH_MCP_MODE=full` | Every tool, including the specialist tools. Use it to run the stages yourself or to debug. |
+
+The server registers no MCP prompts. The skills are also published as read-only resources (`skill://NAME`) and through `reach_get_skill`.
+
 ## First conversation
 
 Tell the assistant: "Use Agent Reach to find customers for https://your-site.com." It should:
 
-1. call `reach_status`, then read the `customer-discovery` skill with `reach_get_skill`;
-2. read your site with `reach_fetch_site_text`, write the profile and show it to you;
-3. ask which of your accounts to link, and which communities you plan to use;
-4. search, read threads, score leads and draft replies, one skill per stage.
-
-The server also publishes the skills as resources (`skill://NAME`) and three prompts: `find_customers`, `draft_reply` and `weekly_review`.
+1. read the `company-operations` skill with `reach_get_skill` and call `ceo_open_directive` with your words (the answer lists what the company lacks);
+   from then on, call `ceo_next_step` after every action and do what it says;
+2. with a server model: let the team run until the profile checkpoint. Without one: play the analyst through `ceo_next_work_order`, `ceo_call_tool` and `ceo_submit_result`;
+3. show you the saved profile and ask you to confirm it, then record your answer with `ceo_resolve_checkpoint`;
+4. continue through search, qualification, drafting, the gate check and the audit;
+5. call `ceo_report` and tell you what passed, what did not and what you must do next.
 
 ## Tools
 
-`skills/customer-discovery/references/tool-reference.md` lists all 31 tools with their arguments. It is generated from the server, and CI fails when it is stale. The groups are:
+`skills/customer-discovery/references/tool-reference.md` lists all 47 tools with their arguments. It is generated from the server, and CI fails when it is stale. The groups are:
 
+- CEO: `ceo_open_directive`, `ceo_status`, `ceo_run`, `ceo_next_work_order`, `ceo_call_tool`, `ceo_submit_result`, `ceo_resolve_checkpoint`, `ceo_create_task`, `ceo_update_task`, `ceo_hire_specialist`, `ceo_create_playbook`, `ceo_list_team`, `ceo_report`, `ceo_next_step`, `ceo_cancel_directive`, `ceo_memory`
 - State and skills: `reach_status`, `reach_list_skills`, `reach_get_skill`
-- Profile: `reach_fetch_site_text`, `reach_analyze_business`, `reach_get_or_create_profile`
-- Search: `reach_plan_queries`, `reach_harvest_threads`, `reach_read_thread`
+- Profile (specialist): `reach_fetch_site_text`, `reach_analyze_business`, `reach_get_or_create_profile`
+- Search (specialist): `reach_plan_queries`, `reach_harvest_threads`, `reach_read_thread`
 - Leads: `reach_save_lead`, `reach_list_leads`, `reach_set_lead_status`, `reach_run_autonomous_batch`
 - Replies: `reach_get_reply_context`, `reach_lint_reply`, `reach_save_reply`, `reach_approve_reply`
-- Posting: `reach_publish_reply`, `reach_confirm_posted`
+- Posting (owner): `reach_publish_reply`, `reach_confirm_posted`
 - Owner setup: `reach_link_account`, `reach_account_health`, `reach_unlink_account`, `reach_import_voice_from_account`, `reach_set_voice_samples`, `reach_set_reply_preferences`, `reach_set_community_rules`
 - Settings and output: `reach_get_settings`, `reach_update_settings`, `reach_export_results`, `reach_get_insights`, `reach_control_dashboard`
 
-Each tool carries annotations: read only, writes locally, or reads public pages and writes locally. Clients that honor them can ask before the second and third kind.
+Each tool carries annotations: read only, writes locally, or reads public pages and writes locally. Clients that honor them can ask before the second and third kind. Specialists use only the tools their role lists. `ceo_list_team` shows each role and its tools.
 
 ## What protects you
 
+- Specialist output counts only after the verifier accepts it. It checks evidence ids, verbatim quotes, numbers, links, scores, linter results and gate codes. See `skills/company-operations/references/verification-rules.md`.
+- A specialist cannot hold `reach_publish_reply`, `reach_approve_reply`, `reach_confirm_posted`, `reach_update_settings`, account tools or community rule tools. The server refuses them even for a hired specialist.
+- A checkpoint needs the owner's own words. An empty answer is refused.
 - Thread text, comments and pages come back wrapped as untrusted, with `injection_flags`. Skip flagged items.
 - `reach_save_lead` takes sub-scores, not a class. The server caps each score, looks for your evidence quote in the stored thread and sets the class. An unverified quote cannot reach high potential.
 - `reach_save_reply` runs the linter and refuses a draft with errors. The issues come back as a list to fix.
@@ -88,6 +101,7 @@ Each tool carries annotations: read only, writes locally, or reads public pages 
 | Symptom | Cause and fix |
 | --- | --- |
 | `ModuleNotFoundError: mcp.server.fastmcp` in an older install | The SDK is 2.x. Upgrade this package. The new server picks the right import. |
+| A specialist tool such as `reach_harvest_threads` is missing | Company mode hides specialist tools from the host. Use `ceo_open_directive`, or start with `--mode full`. |
 | Client shows no tools | Run `agent-reach mcp` in a terminal. It should wait silently for input. Check the path to `agent-reach`. |
 | `reach_harvest_threads` returns few items | Run `agent-reach discovery check search`. Without a keyed backend the app uses Exa and DuckDuckGo, which rate limit. |
 | `rules_not_read` when publishing | Record the community's rules with `reach_set_community_rules`. |

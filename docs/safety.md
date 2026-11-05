@@ -6,9 +6,14 @@ The app is built so that a person always decides, and so that the replies stay u
 
 - It never creates or manages accounts, and it never stores a password, cookie or session. You link an account you already use. Only the handle is stored.
 - It never posts without an approved reply and a passing gate.
+- It never lets a specialist post, approve, change settings or link an account. Only the owner acts, through the owner tools.
 - It never drafts for Hacker News. The site bans generated and AI-edited comments (March 2026).
 - It never sends direct messages, votes, or follows users.
 - It never writes a testimonial or poses as an unrelated customer. The product reply states your connection in a first-person sentence.
+
+## Verification before work counts
+
+Every specialist output goes through the verifier before the CEO treats it as done. Claims cite evidence ids from tool calls and must use words the evidence holds. A claim that cites only a failed call is rejected. Quotes must appear word for word in that evidence. The summary may say no more than the evidence, the claims and earlier verified work. An honest "nothing found" passes; an invented result does not. Numbers and links must come from a tool result, the owner's request or a harvested thread. A lead needs a verified quote to be high potential, and a second model reads high potential threads again. A draft must pass the linter and may state only numbers found in the profile or the thread. The auditor model receives a planted false claim in every batch, and a pass on that claim marks its verdict unreliable. An editor reads every draft. Then the posting inspector runs by itself: it asks the gates what each draft would get if you approved it today, and flags drafts edited after the editor read them. After three failed tries a task returns to the CEO. See `skills/company-operations/references/verification-rules.md`.
 
 ## Gates, in order
 
@@ -17,6 +22,7 @@ The app is built so that a person always decides, and so that the replies stay u
 | emergency_stop | You set the stop. Nothing posts. |
 | draft_mode | Posting is off. |
 | not_approved | The reply has no approval. |
+| empty | The reply text is empty. |
 | platform_policy | The platform bans drafts or automation (Hacker News). |
 | lint | The text breaks a writing rule. |
 | rules_not_read | A Reddit community has no recorded rules. |

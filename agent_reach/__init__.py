@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Agent Reach — internet access for AI agents."""
+"""Agent Reach: a small AI company that finds customers in public communities."""
 
-__version__ = "1.6.0"
+__version__ = "3.2.0"
 
 __all__ = ["__version__"]

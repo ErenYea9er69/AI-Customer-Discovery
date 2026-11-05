@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Configuration management for Agent Reach.
+"""Optional key file: ~/.agent-reach/config.yaml.
 
-Stores settings in ~/.agent-reach/config.yaml. Reads never create files or
-directories; the private directory is created only on the first write.
+Environment variables are the main way to set keys (see .env.example). This file is a fallback
+for owners who prefer a file. Reads never create files or folders. The first write creates a
+private folder and writes the file atomically with owner-only permissions. Symbolic links in the
+path are refused so a planted link cannot redirect a credential read or write.
 """
 
+from __future__ import annotations
+
 import os
-import stat
-import sys
-import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
@@ -16,9 +17,9 @@ import yaml
 
 from agent_reach.utils.paths import (
     PrivatePathError,
+    atomic_write_private_text,
     ensure_no_symlink_path,
     home_dir,
-    make_private_dir,
     read_small_text_no_follow,
 )
 
@@ -26,147 +27,69 @@ _MAX_CONFIG_BYTES = 1024 * 1024
 
 
 class ConfigError(RuntimeError):
-    """Base class for configuration errors safe to show to the user."""
+    """Base class for configuration errors that are safe to show to the user."""
 
 
 class ConfigReadOnlyError(ConfigError):
-    """Raised when code tries to mutate an explicitly read-only config."""
+    """Raised when code tries to change a config opened read only."""
 
 
 class ConfigSecurityError(ConfigError):
-    """Raised when a config path could redirect credential reads or writes."""
-
-
-def _reject_symlink(path: Path, label: str) -> None:
-    try:
-        ensure_no_symlink_path(path, label)
-    except PrivatePathError as exc:
-        raise ConfigSecurityError(str(exc)) from exc
-
-
-def _atomic_write_yaml(target: Path, data: dict) -> None:
-    """Atomically replace ``target`` with owner-only YAML.
-
-    The temporary file lives beside the target so ``os.replace`` remains an
-    atomic same-filesystem operation. Existing symlinks are rejected rather
-    than followed or silently replaced.
-    """
-    _reject_symlink(target, "配置文件")
-    fd, tmp_name = tempfile.mkstemp(
-        dir=str(target.parent),
-        prefix=f".{target.name}.",
-        suffix=".tmp",
-    )
-    tmp_path = Path(tmp_name)
-    try:
-        if sys.platform != "win32" and hasattr(os, "fchmod"):
-            os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            yaml.safe_dump(
-                data,
-                handle,
-                default_flow_style=False,
-                allow_unicode=True,
-            )
-            handle.flush()
-            os.fsync(handle.fileno())
-
-        # Fail closed if a link appeared while serialization was in progress.
-        # A later race is still safe: os.replace replaces a directory entry and
-        # never follows the symlink into its target.
-        _reject_symlink(target, "配置文件")
-        os.replace(tmp_path, target)
-        if sys.platform != "win32":
-            os.chmod(target, stat.S_IRUSR | stat.S_IWUSR)
-
-        # Persist the rename where directory fsync is supported.
-        if sys.platform != "win32" and hasattr(os, "O_DIRECTORY"):
-            try:
-                dir_fd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY)
-                try:
-                    os.fsync(dir_fd)
-                finally:
-                    os.close(dir_fd)
-            except OSError:
-                pass
-    except BaseException:
-        try:
-            tmp_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise
+    """Raised when a config path could redirect a credential read or write."""
 
 
 class Config:
-    """Manages Agent Reach configuration."""
+    """Key and value settings. `get` checks the file first, then the upper-case environment variable."""
 
     CONFIG_DIR = home_dir() / ".agent-reach"
     CONFIG_FILE = CONFIG_DIR / "config.yaml"
 
-
-    def __init__(
-        self,
-        config_path: Optional[Path] = None,
-        *,
-        read_only: bool = False,
-    ):
+    def __init__(self, config_path: Optional[Path] = None, *, read_only: bool = False):
         self.config_path = Path(config_path) if config_path else self.CONFIG_FILE
-        self.config_dir = self.config_path.parent
         self.read_only = read_only
         self.data: dict = {}
         self.load()
 
-    def _ensure_dir(self):
-        """Create config directory if it doesn't exist."""
-        _reject_symlink(self.config_dir, "配置目录")
-        make_private_dir(self.config_dir)
-        _reject_symlink(self.config_dir, "配置目录")
-
-    def load(self):
-        """Load config from YAML file."""
-        _reject_symlink(self.config_dir, "配置目录")
-        _reject_symlink(self.config_path, "配置文件")
+    def _check_path(self) -> None:
         try:
-            payload = read_small_text_no_follow(
-                self.config_path,
-                max_bytes=_MAX_CONFIG_BYTES,
-            )
+            ensure_no_symlink_path(self.config_path.parent, "config folder")
+            ensure_no_symlink_path(self.config_path, "config file")
+        except PrivatePathError as exc:
+            raise ConfigSecurityError(str(exc)) from exc
+
+    def load(self) -> None:
+        self._check_path()
+        try:
+            payload = read_small_text_no_follow(self.config_path, max_bytes=_MAX_CONFIG_BYTES)
         except PrivatePathError as exc:
             raise ConfigSecurityError(str(exc)) from exc
         if payload is None:
             self.data = {}
             return
-
         loaded = yaml.safe_load(payload) or {}
         if not isinstance(loaded, dict):
-            raise ConfigError("配置文件顶层必须是对象")
+            raise ConfigError("The top level of the config file must be a mapping.")
         self.data = loaded
 
-    def save(self):
-        """Save config atomically, refusing mutation in read-only mode."""
+    def save(self) -> None:
         if self.read_only:
-            raise ConfigReadOnlyError("当前配置是只读的，不能保存")
-        self._ensure_dir()
-        if self.config_path == home_dir() / ".agent-reach" / "config.yaml":
-            from agent_reach.runtime import state
-            state.remember_path(self.config_path, "configuration")
-        _atomic_write_yaml(self.config_path, self.data)
+            raise ConfigReadOnlyError("This config is read only.")
+        self._check_path()
+        text = yaml.safe_dump(self.data, default_flow_style=False, allow_unicode=True)
+        try:
+            atomic_write_private_text(self.config_path, text)
+        except PrivatePathError as exc:
+            raise ConfigSecurityError(str(exc)) from exc
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Get a config value. Also checks environment variables (uppercase)."""
-        # Config file first
         if key in self.data:
             return self.data[key]
-        # Then env var (uppercase)
         env_val = os.environ.get(key.upper())
-        if env_val:
-            return env_val
-        return default
+        return env_val if env_val else default
 
-    def set(self, key: str, value: Any):
-        """Set a config value and save."""
+    def set(self, key: str, value: Any) -> None:
         if self.read_only:
-            raise ConfigReadOnlyError("当前配置是只读的，不能修改")
+            raise ConfigReadOnlyError("This config is read only.")
         missing = object()
         previous = self.data.get(key, missing)
         self.data[key] = value
@@ -179,10 +102,9 @@ class Config:
                 self.data[key] = previous
             raise
 
-    def delete(self, key: str):
-        """Delete a config key and save."""
+    def delete(self, key: str) -> None:
         if self.read_only:
-            raise ConfigReadOnlyError("当前配置是只读的，不能修改")
+            raise ConfigReadOnlyError("This config is read only.")
         missing = object()
         previous = self.data.pop(key, missing)
         try:
@@ -191,4 +113,3 @@ class Config:
             if previous is not missing:
                 self.data[key] = previous
             raise
-
