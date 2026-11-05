@@ -8,12 +8,54 @@ from typing import Any, Callable, Dict, List
 
 import pytest
 
-from agent_reach.discovery.models import BusinessProfile, DiscoveredItem
+from agent_reach.discovery.models import (
+    BusinessProfile,
+    DiscoveredItem,
+    LeadQualification,
+    ScoreBreakdown,
+)
 from agent_reach.discovery.orchestrator import DiscoveryOrchestrator
 from agent_reach.discovery.storage import DiscoveryStorage
 from agent_reach.team.engine import TeamEngine
 from agent_reach.team.toolbox import Toolbox, ToolDef, _def_from
 from agent_reach.team.verifier import Verifier
+
+
+VALUE_FIRST = (
+    "I stopped chasing by hand when I set one rule: every invoice gets a due date and a reminder "
+    "three days before it. A calendar repeat does it for free. It breaks down past twenty clients, "
+    "because nobody checks the calendar anymore."
+)
+PRODUCT_AWARE = VALUE_FIRST + " I built Tidewatch for that stage, so I am biased."
+
+
+def make_lead(**kw):
+    base = dict(
+        discovered_item_id="i",
+        title="Chasing invoices",
+        url="https://www.reddit.com/r/freelance/comments/abc/x/",
+        platform="reddit",
+        community="r/freelance",
+        author="u",
+        published_at="",
+        excerpt="I keep forgetting to chase late invoices.",
+        customer_problem="forgets to chase invoices",
+        pain_point_category="c",
+        profile_match="m",
+        product_fit_explanation="z",
+        evidence="e",
+        score=60,
+        score_breakdown=ScoreBreakdown(
+            icp_match=10, problem_fit=10, buying_intent=10, urgency=10, recency=10, total=50
+        ),
+    )
+    base.update(kw)
+    return LeadQualification(**base)
+
+
+@pytest.fixture
+def lead():
+    return make_lead()
 
 
 class FakeLLM:
