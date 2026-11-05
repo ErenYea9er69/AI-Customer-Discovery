@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, LoaderCircle, X } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { OverviewView } from './components/OverviewView';
+import { TeamView } from './components/TeamView';
 import { ProfileView } from './components/ProfileView';
 import { DiscoveryView } from './components/DiscoveryView';
 import { LeadsView } from './components/LeadsView';
@@ -14,6 +15,7 @@ import { api } from './api';
 const routeToTab: Record<string, string> = {
   '/': 'overview',
   '/overview': 'overview',
+  '/team': 'team',
   '/profile': 'profile',
   '/discovery': 'discovery',
   '/leads': 'leads',
@@ -44,20 +46,24 @@ export const App: React.FC = () => {
   const [replyStudioLeadId, setReplyStudioLeadId] = useState<string | undefined>(initial.leadId);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
+  const [teamPendingCheckpoints, setTeamPendingCheckpoints] = useState(0);
 
   const refreshData = async () => {
     setLoading(true);
     try {
-      const [prof, leadList, counts, settingsData] = await Promise.all([
+      const [prof, leadList, counts, settingsData, teamDirs] = await Promise.all([
         api.getProfile(),
         api.listLeads({ limit: 25, offset: 0 }),
         api.getLeadCounts(),
         api.getSettings(),
+        api.team.listDirectives().catch(() => ({ directives: [], model_configured: false })),
       ]);
       setProfile(prof);
       setLeads(leadList);
       setLeadCounts(counts);
       setEmergencyStop(settingsData.posting_settings?.emergency_stop || false);
+      const waiting = (teamDirs.directives || []).filter((d) => d.status === 'waiting_owner');
+      setTeamPendingCheckpoints(waiting.length);
     } catch (error) {
       setNotice({
         type: 'error',
@@ -101,6 +107,7 @@ export const App: React.FC = () => {
 
   const pageTitles: Record<string, string> = {
     overview: 'Overview',
+    team: 'CEO & Autonomous Squad',
     profile: 'Business Profile',
     discovery: 'Discovery Engine',
     leads: 'Leads Inbox',
@@ -117,6 +124,7 @@ export const App: React.FC = () => {
         onSelectTab={handleNavigate}
         leadCounts={leadCounts}
         emergencyStop={emergencyStop}
+        teamPendingCheckpoints={teamPendingCheckpoints}
       />
       <main id="main-content" className="main-content">
         <header className="topbar">
@@ -166,6 +174,14 @@ export const App: React.FC = () => {
                 leadCounts={leadCounts}
                 onNavigate={handleNavigate}
                 onLaunchCampaign={() => handleNavigate('discovery')}
+              />
+            )}
+            {currentTab === 'team' && (
+              <TeamView
+                profile={profile}
+                onNavigateToLeads={() => handleNavigate('leads')}
+                onNavigateToReplyStudio={(leadId) => handleNavigate('reply_studio', leadId)}
+                onNavigateToProfile={() => handleNavigate('profile')}
               />
             )}
             {currentTab === 'profile' && (

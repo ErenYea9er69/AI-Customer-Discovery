@@ -1,12 +1,20 @@
 import type {
   AnalyticsSummary,
+  AskCeoResponse,
   BusinessProfile,
   Campaign,
+  CheckpointResolution,
+  DirectiveDetail,
+  DirectiveSummary,
   GeneratedReply,
   LeadQualification,
+  MemoryItem,
+  NextStep,
   PlatformInfo,
   PostingSettings,
   SettingsPayload,
+  TeamReport,
+  TeamRoster,
 } from './types';
 
 const BASE_URL = '/api';
@@ -273,5 +281,95 @@ export const api = {
 
   getExportUrl(format: 'json' | 'csv', minScore: number = 0): string {
     return `${BASE_URL}/export?format=${format}&min_score=${minScore}`;
+  },
+
+  // ── Team & CEO Layer ──
+  team: {
+    async ask(message: string): Promise<AskCeoResponse> {
+      const res = await fetch(`${BASE_URL}/team/ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
+      });
+      return await handleResponse<AskCeoResponse>(res);
+    },
+
+    async listDirectives(): Promise<{ directives: DirectiveSummary[]; model_configured: boolean }> {
+      const res = await fetch(`${BASE_URL}/team/directives`);
+      return await handleResponse<{ directives: DirectiveSummary[]; model_configured: boolean }>(res);
+    },
+
+    async getDirective(id: string): Promise<DirectiveDetail> {
+      const res = await fetch(`${BASE_URL}/team/directives/${id}`);
+      return await handleResponse<DirectiveDetail>(res);
+    },
+
+    async runDirective(id: string): Promise<{ started: boolean; directive_id: string }> {
+      const res = await fetch(`${BASE_URL}/team/directives/${id}/run`, {
+        method: 'POST',
+      });
+      return await handleResponse<{ started: boolean; directive_id: string }>(res);
+    },
+
+    async getReport(id: string): Promise<TeamReport> {
+      const res = await fetch(`${BASE_URL}/team/directives/${id}/report`);
+      return await handleResponse<TeamReport>(res);
+    },
+
+    async resolveCheckpoint(
+      taskId: string,
+      decision: 'approve' | 'reject',
+      message: string
+    ): Promise<CheckpointResolution> {
+      const res = await fetch(`${BASE_URL}/team/tasks/${taskId}/checkpoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision, message }),
+      });
+      return await handleResponse<CheckpointResolution>(res);
+    },
+
+    async getNextStep(id: string): Promise<NextStep> {
+      const res = await fetch(`${BASE_URL}/team/directives/${id}/next`);
+      return await handleResponse<NextStep>(res);
+    },
+
+    async cancelDirective(
+      id: string,
+      reason: string = ''
+    ): Promise<{ directive_id: string; status: string; tasks_stopped: number }> {
+      const res = await fetch(`${BASE_URL}/team/directives/${id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+      return await handleResponse<{ directive_id: string; status: string; tasks_stopped: number }>(res);
+    },
+
+    async getMemory(): Promise<MemoryItem[]> {
+      const res = await fetch(`${BASE_URL}/team/memory`);
+      return await handleResponse<MemoryItem[]>(res);
+    },
+
+    async addMemory(text: string): Promise<{ remembered: string; id: number }> {
+      const res = await fetch(`${BASE_URL}/team/memory`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      return await handleResponse<{ remembered: string; id: number }>(res);
+    },
+
+    async deleteMemory(id: number): Promise<{ forgotten: number }> {
+      const res = await fetch(`${BASE_URL}/team/memory/${id}`, {
+        method: 'DELETE',
+      });
+      return await handleResponse<{ forgotten: number }>(res);
+    },
+
+    async getRoster(): Promise<TeamRoster> {
+      const res = await fetch(`${BASE_URL}/team/roster`);
+      return await handleResponse<TeamRoster>(res);
+    },
   },
 };

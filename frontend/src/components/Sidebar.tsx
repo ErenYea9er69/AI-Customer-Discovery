@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   LayoutDashboard,
+  Users,
   Building2,
   Compass,
   Inbox,
@@ -16,6 +17,7 @@ interface SidebarProps {
   onSelectTab: (tab: string) => void;
   leadCounts: Record<string, number>;
   emergencyStop: boolean;
+  teamPendingCheckpoints?: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -23,9 +25,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectTab,
   leadCounts,
   emergencyStop,
+  teamPendingCheckpoints = 0,
 }) => {
   const navItems = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+    {
+      id: 'team',
+      label: 'CEO & Squad',
+      icon: Users,
+      badge: teamPendingCheckpoints > 0 ? teamPendingCheckpoints.toString() : undefined,
+      badgeColor: '#fef3c7',
+      badgeTextColor: '#b45309',
+    },
     { id: 'profile', label: 'Business Profile', icon: Building2 },
     { id: 'discovery', label: 'Discovery Engine', icon: Compass },
     {
@@ -96,7 +107,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Footer Info */}
       <div className="sidebar-footer">
-        <span>Engine v2.1.0</span>
+        <span>Engine v3.2.0</span>
         <span className="status-indicator">
           <span className="status-dot status-dot-green" />
           <span>Ready</span>

@@ -223,3 +223,248 @@ export interface AnalyticsSummary {
   platform_distribution: Record<string, number>;
   recommendations: { type: string; title: string; description: string }[];
 }
+
+// ── Company & Team Layer Types ──
+
+export type DirectiveStatus =
+  | 'open'
+  | 'running'
+  | 'waiting_owner'
+  | 'needs_ceo'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export type TaskStatus =
+  | 'pending'
+  | 'ready'
+  | 'running'
+  | 'done'
+  | 'escalated'
+  | 'needs_owner'
+  | 'blocked'
+  | 'skipped';
+
+export interface Evidence {
+  id: string;
+  tool: string;
+  ok: boolean;
+  args: Record<string, any>;
+  text: string;
+  urls: string[];
+  at: number;
+}
+
+export interface Verdict {
+  passed: boolean;
+  issues: string[];
+  checks: Record<string, boolean>;
+  auditor: 'pass' | 'fail' | 'unavailable' | 'skipped' | string;
+  notes: string[];
+  trust: 'high' | 'medium' | 'low' | string;
+  at: number;
+}
+
+export interface TeamTask {
+  task_id: string;
+  role: string;
+  title: string;
+  kind: 'work' | 'checkpoint';
+  status: TaskStatus;
+  depends_on: string[];
+  attempts: number;
+  issues?: string[];
+  checkpoint?: string;
+  instruction?: string;
+  acceptance?: string[];
+  feedback?: string[];
+  result?: {
+    summary?: string;
+    claims?: Array<{ text: string; evidence_ids: string[]; quote?: string; assumption?: boolean }>;
+    data?: Record<string, any>;
+  };
+  verdict?: Verdict;
+  owner_message?: string;
+  owner_channel?: string;
+}
+
+export interface DirectiveSummary {
+  directive_id: string;
+  request: string;
+  intent: string;
+  status: DirectiveStatus;
+}
+
+export interface DirectiveDetail {
+  directive_id: string;
+  request: string;
+  intent: string;
+  status: DirectiveStatus;
+  progress: { done: number; total: number };
+  notes: string[];
+  tasks: TeamTask[];
+  events: Array<{ at: number; kind: string; note: string; task_id?: string }>;
+  next: string;
+}
+
+export interface InspectionRow {
+  reply_id: string;
+  code: string;
+  message: string;
+  ready: boolean;
+  waits: boolean;
+  editor_verdict: string;
+  attention: string[];
+  title: string;
+}
+
+export interface LeadCard {
+  lead_id: string;
+  title: string;
+  url: string;
+  platform: string;
+  community: string;
+  score: number;
+  classification: string;
+  quote_verified: boolean;
+  evidence_quote: string;
+  status: string;
+  reply?: {
+    reply_id: string;
+    status: string;
+    pitch_level?: number;
+    value_first?: string;
+    product_aware?: string;
+    lint_passed?: boolean;
+    gate?: {
+      code: string;
+      message: string;
+      ready: boolean;
+      waits: boolean;
+      editor_verdict: string;
+      attention: string[];
+    };
+  };
+}
+
+export interface TeamReport {
+  directive_id: string;
+  request: string;
+  status: DirectiveStatus;
+  headline: string;
+  summary: string;
+  trust: 'high' | 'medium' | 'low' | 'none' | 'partial' | string;
+  lead_cards: LeadCard[];
+  inspection: InspectionRow[];
+  what_was_tried: string[];
+  verified_work: Array<{
+    task_id: string;
+    role: string;
+    title: string;
+    summary: string;
+    claims: Array<{ text: string; evidence_ids: string[]; quote?: string }>;
+    assumptions: string[];
+    auditor: string;
+    trust: string;
+    attempts: number;
+  }>;
+  not_verified: Array<{
+    task_id: string;
+    role: string;
+    title: string;
+    status: string;
+    issues: string[];
+  }>;
+  owner_actions: string[];
+  stats: {
+    leads: number;
+    replies: Record<string, number>;
+  };
+  quality: {
+    tool_calls: number;
+    failed_checks_before_pass: number;
+    tasks_escalated: number;
+    tasks_skipped_for_empty_input: number;
+    revision_rounds: number;
+  };
+  progress: { done: number; total: number };
+  ledger: {
+    evidence_items: number;
+    tool_calls_failed: number;
+  };
+  owner_confirmations: Array<{
+    checkpoint: string;
+    via: string;
+    message: string;
+  }>;
+}
+
+export interface RoleSpec {
+  name: string;
+  title: string;
+  tier: 'fast' | 'smart';
+  builtin: boolean;
+  skills: string[];
+  tools: string[];
+  automatic: boolean;
+}
+
+export interface Playbook {
+  name: string;
+  description: string;
+  steps: string[];
+  builtin: boolean;
+}
+
+export interface TeamRoster {
+  ceo: string;
+  roles: RoleSpec[];
+  playbooks: Playbook[];
+  model_configured: boolean;
+  memory_notes: number;
+}
+
+export interface MemoryItem {
+  id: number;
+  category: string;
+  text: string;
+  directive_id?: string;
+  created_at: number;
+}
+
+export interface NextStep {
+  directive_id: string;
+  status: DirectiveStatus;
+  progress: { done: number; total: number };
+  do: 'work' | 'ask_owner' | 'decide' | 'run' | 'report' | 'wait' | 'stop';
+  why?: string;
+  call?: string;
+  task_id?: string;
+  role?: string;
+  title?: string;
+  checkpoint?: string;
+  question?: string;
+  issues?: string[];
+  choices?: string[];
+  then?: string;
+  rule?: string;
+}
+
+export interface AskCeoResponse {
+  directive_id: string;
+  intent: string;
+  status: DirectiveStatus;
+  mode?: 'server' | 'host';
+  running?: boolean;
+  next?: string;
+  readiness?: string[];
+  report?: TeamReport | { summary: string };
+  error?: string;
+}
+
+export interface CheckpointResolution {
+  task: TeamTask;
+  directive_status: DirectiveStatus;
+  owner_channel: string;
+}
+

@@ -8,6 +8,7 @@ import {
   MessageSquare,
   ShieldCheck,
   Target,
+  Sparkles,
 } from 'lucide-react';
 import type { BusinessProfile, LeadQualification } from '../types';
 
@@ -87,6 +88,22 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
           </button>
         </section>
       ) : null}
+
+      <section className="overview-team-card">
+        <div className="overview-team-left">
+          <div className="overview-team-icon">👑</div>
+          <div className="overview-team-text">
+            <h3>Autonomous CEO & Specialist Squad</h3>
+            <p>
+              Instruct your squad to find leads, verify evidence quotes, and draft safety-inspected replies autonomously.
+            </p>
+          </div>
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={() => onNavigate('team')}>
+          <Sparkles size={14} />
+          <span>Launch with CEO</span>
+        </button>
+      </section>
 
       <section className="metric-grid" aria-label="Discovery summary">
         <article className="metric-card metric-card-primary">
