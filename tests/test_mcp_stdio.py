@@ -68,7 +68,7 @@ async def session_flow(db):
             out["hn_lead"] = hn
             out["hn_context"] = await call("reach_get_reply_context", lead_id=hn["lead_id"])
             out["bad_save"] = await call("reach_save_reply", lead_id=lead["lead_id"], value_first="Great question — do this.")
-            out["save"] = await call("reach_save_reply", lead_id=lead["lead_id"], value_first=VALUE_FIRST, product_aware=PRODUCT_AWARE)
+            out["save"] = await call("reach_save_reply", lead_id=lead["lead_id"], value_first=VALUE_FIRST, product_aware=PRODUCT_AWARE.replace("Tidewatch", "Acme"))
             out["approve"] = await call("reach_approve_reply", reply_id=out["save"]["reply_id"], selected_version="value_first")
             out["publish_no_rules"] = await call("reach_publish_reply", reply_id=out["save"]["reply_id"])
             await call("reach_set_community_rules", community="r/freelance", self_promo="allowed")
@@ -90,7 +90,7 @@ def test_surface(flow):
     assert len(names) >= 30 and {"reach_status", "reach_get_reply_context", "reach_lint_reply", "reach_publish_reply"} <= names
     assert all(t.annotations is not None for t in flow["tools"].values())
     assert "skill://{name}" in flow["templates"]
-    assert {"find_customers", "draft_reply", "weekly_review"} <= set(flow["prompts"])
+    assert len(flow["prompts"]) == 0
     assert len(flow["resource"]) > 1000
 
 

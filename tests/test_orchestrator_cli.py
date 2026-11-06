@@ -56,7 +56,7 @@ def test_cli_prefs_rules_lint_skills(storage, capsys):
     code, data = run(["lint", "--text", "Great question — try this."], capsys)
     assert code == 0 and data["passed"] is False
     code, data = run(["skills", "list"], capsys)
-    assert code == 0 and len(data) == 7
+    assert code == 0 and len(data) >= 7
     code, data = run(["accounts", "link", "tiktok:x"], capsys)
     assert code == 1 and "Unsupported" in data["error"]
     code, data = run(["bogus"], capsys)

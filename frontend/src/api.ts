@@ -8,6 +8,7 @@ import type {
   DirectiveSummary,
   GeneratedReply,
   LeadQualification,
+  LintReport,
   MemoryItem,
   NextStep,
   PlatformInfo,
@@ -252,6 +253,21 @@ export const api = {
   async confirmPublished(leadId: string): Promise<{ success: boolean; message?: string; reason?: string }> {
     const res = await fetch(`${BASE_URL}/replies/${leadId}/confirm-published`, { method: 'POST' });
     return await handleResponse<{ success: boolean; message?: string; reason?: string }>(res);
+  },
+
+  // Voice & Copywriting Linter
+  async lintText(text: string, kind?: string, platform?: string, leadId?: string): Promise<LintReport> {
+    const res = await fetch(`${BASE_URL}/voice/lint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, kind, platform, lead_id: leadId }),
+    });
+    return await handleResponse<LintReport>(res);
+  },
+
+  async getDisclosures(): Promise<{ phrases: string[] }> {
+    const res = await fetch(`${BASE_URL}/voice/disclosures`);
+    return await handleResponse<{ phrases: string[] }>(res);
   },
 
   // Analytics

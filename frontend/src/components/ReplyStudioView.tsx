@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Copy,
   ExternalLink,
@@ -13,8 +13,10 @@ import {
   ShieldAlert,
   AlertCircle,
   Check,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
-import type { GeneratedReply, LeadQualification } from '../types';
+import type { GeneratedReply, LeadQualification, LintReport, LintIssue } from '../types';
 import { api } from '../api';
 
 interface ReplyStudioViewProps {
@@ -55,6 +57,10 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
   const [editedText, setEditedText] = useState('');
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [liveLint, setLiveLint] = useState<LintReport | null>(null);
+  const [isLinting, setIsLinting] = useState(false);
+  const [disclosures, setDisclosures] = useState<string[]>([]);
+  const [showDisclosures, setShowDisclosures] = useState(false);
   const [publishStatus, setPublishStatus] = useState<{
     type: 'info' | 'error' | 'success';
     message: string;
@@ -100,6 +106,12 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
   }, []);
 
   useEffect(() => {
+    void api.getDisclosures().then((res) => {
+      if (res?.phrases) setDisclosures(res.phrases);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     if (initialLeadId) {
       setSelectedLeadId(initialLeadId);
     } else if (!selectedLeadId && leads.length > 0) {
@@ -111,6 +123,34 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
     if (!selectedLeadId) return;
     void loadLeadAndReply(selectedLeadId);
   }, [selectedLeadId, loadLeadAndReply]);
+
+  useEffect(() => {
+    if (selectedVersion !== 'custom' || !editedText.trim()) {
+      setLiveLint(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsLinting(true);
+      try {
+        const report = await api.lintText(editedText, 'custom', lead?.platform, selectedLeadId);
+        setLiveLint(report);
+      } catch {
+        // quiet fallback
+      } finally {
+        setIsLinting(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [editedText, selectedVersion, lead?.platform, selectedLeadId]);
+
+  const handleInsertDisclosure = (phrase: string) => {
+    setEditedText((prev) => {
+      const trimmed = prev.trim();
+      return trimmed ? `${trimmed} ${phrase}` : phrase;
+    });
+    setSelectedVersion('custom');
+    setShowDisclosures(false);
+  };
 
   const handleSelectVersion = (version: 'value_first' | 'product_aware') => {
     if (!reply) return;
@@ -124,6 +164,13 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
       setPublishStatus({
         type: 'error',
         message: 'Please write your reply text before approving.',
+      });
+      return;
+    }
+    if (errorIssues.length > 0) {
+      setPublishStatus({
+        type: 'error',
+        message: `Approval blocked: Please resolve the ${errorIssues.length} rule violation(s) flagged above (${errorIssues.map(e => e.code).join(', ')}).`,
       });
       return;
     }
@@ -229,6 +276,31 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
   const wordCount = countWords(editedText);
   const maxWords = lead ? PLATFORM_MAX_WORDS[lead.platform] || 150 : 150;
   const isOverWordLimit = maxWords > 0 && wordCount > maxWords;
+  const wordPercentage = maxWords > 0 ? Math.min(100, Math.round((wordCount / maxWords) * 100)) : 0;
+
+  const activeReport = useMemo<LintReport | null>(() => {
+    if (selectedVersion === 'custom') {
+      return liveLint || reply?.lint?.final || null;
+    }
+    if (selectedVersion === 'product_aware') {
+      return reply?.lint?.product_aware || null;
+    }
+    return reply?.lint?.value_first || null;
+  }, [selectedVersion, liveLint, reply]);
+
+  const issues: LintIssue[] = useMemo(() => {
+    if (!activeReport?.issues) return [];
+    return activeReport.issues.map((iss: any) => {
+      if (typeof iss === 'string') {
+        const isWarn = iss.toLowerCase().includes('warn') || iss.toLowerCase().includes('tip');
+        return { code: 'rule', severity: isWarn ? 'warn' : 'error', message: iss } as LintIssue;
+      }
+      return iss as LintIssue;
+    });
+  }, [activeReport]);
+
+  const errorIssues = issues.filter((i) => i.severity === 'error');
+  const warningIssues = issues.filter((i) => i.severity === 'warn');
 
   return (
     <div className="page-shell">
@@ -527,52 +599,138 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
               </div>
             )}
 
-            {/* Linter warnings / issues if any */}
-            {reply?.needs_human_edit && (
-              <div className="notice notice-warning" style={{ margin: 0 }}>
-                <AlertCircle size={15} />
-                <div>
-                  <strong>Human Polish Recommended</strong>
-                  <span>The AI draft flagged rule exceptions. Please review and adjust the text before approving.</span>
-                </div>
+            {/* Real-time Checking Status */}
+            {isLinting && (
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-subtle)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <LoaderCircle className="spin" size={13} color="var(--primary)" />
+                <span>Checking community copywriting and anti-slop rules…</span>
               </div>
             )}
 
-            {reply?.lint && reply.lint.issues && reply.lint.issues.length > 0 && (
+            {/* Blocking Rule Errors */}
+            {errorIssues.length > 0 && (
               <div
                 style={{
-                  padding: 'var(--sp-2) var(--sp-3)',
-                  background: 'var(--warning-bg)',
-                  border: '1px solid var(--warning-border)',
-                  borderRadius: 'var(--r-sm)',
-                  fontSize: 'var(--fs-2xs)',
-                  color: 'var(--warning-text)',
+                  padding: 'var(--sp-3) var(--sp-4)',
+                  background: 'var(--danger-bg)',
+                  border: '1px solid var(--danger-border)',
+                  borderRadius: 'var(--r-md)',
+                  color: 'var(--danger-text)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 'var(--sp-2)',
                 }}
               >
-                <strong>Linter Observations:</strong>
-                <ul style={{ paddingLeft: 'var(--sp-4)', marginTop: '2px' }}>
-                  {reply.lint.issues.map((iss: string, idx: number) => (
-                    <li key={idx}>{iss}</li>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontWeight: 700, fontSize: 'var(--fs-xs)' }}>
+                  <AlertCircle size={15} />
+                  <span>Rule Errors ({errorIssues.length}) - Blocks Approval</span>
+                </div>
+                <div style={{ fontSize: 'var(--fs-2xs)', opacity: 0.9 }}>
+                  These rules eliminate AI tells (not-X-but-Y, lead-ins, scripted sympathy, dashes, banned words):
+                </div>
+                <ul style={{ paddingLeft: 'var(--sp-4)', margin: 0, fontSize: 'var(--fs-2xs)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {errorIssues.map((iss, idx) => (
+                    <li key={idx}>
+                      <span className="badge badge-amber" style={{ fontSize: '10px', padding: '1px 6px', marginRight: '6px', verticalAlign: 'middle' }}>
+                        {iss.code}
+                      </span>
+                      <span>{iss.message}</span>
+                    </li>
                   ))}
                 </ul>
               </div>
             )}
 
-            <div className="form-group" style={{ flex: 1 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <label htmlFor="reply-editor-textarea" className="label">
+            {/* Stylistic Voice Warnings */}
+            {warningIssues.length > 0 && (
+              <div
+                style={{
+                  padding: 'var(--sp-3) var(--sp-4)',
+                  background: 'var(--warning-bg)',
+                  border: '1px solid var(--warning-border)',
+                  borderRadius: 'var(--r-md)',
+                  color: 'var(--warning-text)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 'var(--sp-2)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontWeight: 700, fontSize: 'var(--fs-xs)' }}>
+                  <AlertTriangle size={15} />
+                  <span>Voice & Polish Observations ({warningIssues.length})</span>
+                </div>
+                <ul style={{ paddingLeft: 'var(--sp-4)', margin: 0, fontSize: 'var(--fs-2xs)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {warningIssues.map((iss, idx) => (
+                    <li key={idx}>
+                      <span className="badge badge-low" style={{ fontSize: '10px', padding: '1px 6px', marginRight: '6px', verticalAlign: 'middle' }}>
+                        {iss.code}
+                      </span>
+                      <span>{iss.message}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Clean Passes */}
+            {activeReport && activeReport.passed && errorIssues.length === 0 && warningIssues.length === 0 && (
+              <div
+                style={{
+                  padding: 'var(--sp-2) var(--sp-3)',
+                  background: 'var(--success-bg)',
+                  border: '1px solid var(--success-border)',
+                  borderRadius: 'var(--r-sm)',
+                  color: 'var(--success-text)',
+                  fontSize: 'var(--fs-2xs)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 'var(--sp-2)',
+                }}
+              >
+                <CheckCircle size={14} />
+                <span>Passes all community copywriting and anti-slop rules ({activeReport.words} words).</span>
+              </div>
+            )}
+
+            <div className="form-group" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-1)' }}>
+                <label htmlFor="reply-editor-textarea" className="label" style={{ margin: 0 }}>
                   Response Draft (Fully Editable)
                 </label>
                 <span
                   style={{
                     fontSize: 'var(--fs-2xs)',
-                    color: isOverWordLimit ? 'var(--danger-text)' : 'var(--text-subtle)',
+                    color: isOverWordLimit ? 'var(--danger-text)' : wordPercentage > 85 ? 'var(--warning-text)' : 'var(--text-subtle)',
                     fontWeight: 600,
                   }}
                 >
                   {wordCount} words {maxWords > 0 ? `/ ${maxWords} max` : ''}
                 </span>
               </div>
+
+              {/* Word Count Progress Bar */}
+              {maxWords > 0 && (
+                <div
+                  style={{
+                    height: '3px',
+                    width: '100%',
+                    background: 'var(--surface-subtle)',
+                    borderRadius: '2px',
+                    overflow: 'hidden',
+                    marginBottom: 'var(--sp-2)',
+                  }}
+                >
+                  <div
+                    style={{
+                      height: '100%',
+                      width: `${wordPercentage}%`,
+                      background: isOverWordLimit ? 'var(--danger-text)' : wordPercentage > 85 ? 'var(--warning-text)' : 'var(--primary)',
+                      transition: 'width 0.2s ease',
+                    }}
+                  />
+                </div>
+              )}
+
               <textarea
                 id="reply-editor-textarea"
                 className="textarea"
@@ -591,8 +749,77 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
               />
             </div>
 
+            {/* Ethical Disclosures Helper */}
+            {disclosures.length > 0 && (
+              <div
+                style={{
+                  background: 'var(--surface-subtle)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--r-md)',
+                  padding: 'var(--sp-3)',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => setShowDisclosures(!showDisclosures)}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-xs)', fontWeight: 600 }}>
+                    <ShieldCheck size={14} color="var(--primary)" />
+                    <span>Ethical Disclosures ({disclosures.length} natural variants)</span>
+                  </div>
+                  <button type="button" className="btn btn-secondary btn-sm" style={{ padding: '2px 8px', height: 'auto' }}>
+                    {showDisclosures ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                    <span style={{ fontSize: '11px' }}>{showDisclosures ? 'Hide' : 'Browse & Insert'}</span>
+                  </button>
+                </div>
+
+                {showDisclosures && (
+                  <div
+                    style={{
+                      marginTop: 'var(--sp-3)',
+                      paddingTop: 'var(--sp-3)',
+                      borderTop: '1px solid var(--border)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 'var(--sp-2)',
+                      maxHeight: '180px',
+                      overflowY: 'auto',
+                    }}
+                  >
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-subtle)' }}>
+                      Click any approved phrase to append to your response:
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
+                      {disclosures.map((phrase, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          style={{
+                            fontSize: '11px',
+                            padding: '4px 8px',
+                            textAlign: 'left',
+                            background: 'var(--card-bg)',
+                          }}
+                          onClick={() => handleInsertDisclosure(phrase)}
+                          title="Click to insert at the end of your draft"
+                        >
+                          + &ldquo;{phrase}&rdquo;
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Ethical Disclosure Preview */}
-            {reply?.affiliation_disclosure && selectedVersion === 'product_aware' && (
+            {reply?.affiliation_disclosure && selectedVersion === 'product_aware' && !showDisclosures && (
               <div
                 style={{
                   padding: 'var(--sp-2) var(--sp-3)',
@@ -607,7 +834,7 @@ export const ReplyStudioView: React.FC<ReplyStudioViewProps> = ({
               >
                 <ShieldCheck size={14} color="var(--primary)" />
                 <span>
-                  <strong>Ethical Disclosure:</strong> {reply.affiliation_disclosure}
+                  <strong>Active Disclosure:</strong> {reply.affiliation_disclosure}
                 </span>
               </div>
             )}

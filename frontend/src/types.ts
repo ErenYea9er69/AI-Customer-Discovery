@@ -127,6 +127,21 @@ export interface LeadQualification {
   created_at: number;
 }
 
+export type LintSeverity = 'error' | 'warn';
+
+export interface LintIssue {
+  code: string;
+  severity: LintSeverity;
+  message: string;
+}
+
+export interface LintReport {
+  passed: boolean;
+  words: number;
+  voice_score?: number | null;
+  issues: LintIssue[];
+}
+
 export interface GeneratedReply {
   id: string;
   lead_id: string;
@@ -146,7 +161,12 @@ export interface GeneratedReply {
   target_text?: string;
   target_reason?: string;
   pitch_level?: number;
-  lint?: Record<string, any>;
+  lint?: {
+    value_first?: LintReport;
+    product_aware?: LintReport;
+    final?: LintReport;
+    [key: string]: any;
+  };
   needs_human_edit?: boolean;
   generated_by?: string;
   published_comment_id?: string;

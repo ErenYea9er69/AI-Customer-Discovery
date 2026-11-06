@@ -66,6 +66,7 @@ include = ["agent_reach", "skills", "scripts", "tests", "docs", "README.md", "AU
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests", "."]
 addopts = "-q"
 
 [tool.ruff]

@@ -21,7 +21,7 @@ def test_failed_lint_triggers_retry_with_issues(lead, profile):
     assert "lint_issues" in llm.calls[1][0] and "dash" in llm.calls[1][0]
     assert "Skill: community-copywriting" in llm.calls[0][1] and "Skill: thread-engagement" in llm.calls[0][1]
     assert reply.target_kind == "comment" and reply.target_comment_id == "c1"
-    assert "Acme" in reply.affiliation_disclosure
+    assert profile.name in reply.affiliation_disclosure
 
 
 def test_persistent_failure_is_flagged_not_hidden(lead, profile):
