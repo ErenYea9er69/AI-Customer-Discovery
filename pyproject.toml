@@ -62,12 +62,7 @@ packages = ["agent_reach"]
 "skills" = "agent_reach/skillpack"
 
 [tool.hatch.build.targets.sdist]
-include = ["agent_reach", "skills", "scripts", "tests", "docs", "README.md", "AUDIT.md", "COMPANY_AUDIT.md", "CHANGELOG.md"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["tests", "."]
-addopts = "-q"
+include = ["agent_reach", "skills", "scripts", "README.md"]
 
 [tool.ruff]
 target-version = "py310"
@@ -84,4 +79,3 @@ warn_redundant_casts = true
 warn_unused_ignores = false
 check_untyped_defs = true
 ignore_missing_imports = true
-exclude = ["^tests/"]
