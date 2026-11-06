@@ -23,13 +23,19 @@ Use this file when no voice samples exist, or to fill gaps in a thin sample set.
 
 ## Openers people use
 
-- "At that size, ..." (avoid the word "that" if it is on your avoid list; use "At 8 invoices a month, ...")
+- "At 8 invoices a month, ..."
 - "For a solo setup, ..."
 - "I ran into this too. ..."
 - "Depends on X, but ..."
-- "Short version: ..."
 - "Not sure this fits, but ..."
-- "What worked for me: ..."
+- "I'd skip X and do Y."
+- The verdict itself: "Batch them on Monday."
+
+Rotate these. When the last replies opened with a constraint ("At 8 invoices a month, ..."), open this one with the verdict or with the owner's own case. A fixed opener repeated across replies is a tell.
+
+## Labels and lead-ins
+
+Do not announce the point with a label: "Short version:", "Pro tip:", "The catch:", "Here's why:". Say the point. A label belongs only where the owner's samples use one.
 
 ## Hedges and fillers (use only if the owner's samples use them)
 
@@ -60,6 +66,8 @@ Use lowercase starts and dropped apostrophes only when the samples show them. A 
 - A reply that starts with praise.
 - A reply that repeats the post.
 - A reply from an account that mentions one product in every thread.
+- A reply that sounds kind but says nothing: sympathy, encouragement, "it depends".
+- A reply that ends by asking the author what they think.
 - A reply that ignores the constraint the author stated.
 
 ## Mini examples

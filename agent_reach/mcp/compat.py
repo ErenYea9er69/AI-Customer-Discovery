@@ -14,7 +14,9 @@ try:  # SDK 2.x
     from mcp.server.mcpserver import MCPServer as _Server
     SDK_LINE = "2.x"
 except ImportError:  # SDK 1.x
-    from mcp.server.fastmcp import FastMCP as _Server  # type: ignore[assignment,no-redef,attr-defined,unused-ignore]
+    from mcp.server.fastmcp import (
+        FastMCP as _Server,  # type: ignore[assignment,no-redef,attr-defined,unused-ignore]
+    )
     SDK_LINE = "1.x"
 
 from mcp.types import ToolAnnotations

@@ -1,6 +1,6 @@
 {
   "pack_version": "1.0.0",
-  "sha256": "875e3282626f9353b32c07bceb7cbd043423796865b7b23763e23eff49ddf645",
+  "sha256": "2333594fe09bccea687765aa43c298cee28c27cc86c7115919fde4f6d5c410db",
   "skills": [
     {
       "description": "How the CEO runs the team: plan a directive, hand work to specialists, verify every output, stop at owner checkpoints and report only verified work. Load it first when the owner makes any request.",
@@ -9,7 +9,7 @@
       "references": [
         "references/verification-rules.md"
       ],
-      "sha256": "3ad17548816bd561796f06647751f1f1add2db52fa38fe1db10bd8d093a4f1b4",
+      "sha256": "ccd8880a92fa61efee17ba944d2f59aa04f128bf00c62be5af8489a3584406ff",
       "stage": "router",
       "used_by": [
         "mcp",
@@ -26,7 +26,7 @@
         "references/pipeline-workflow.md",
         "references/tool-reference.md"
       ],
-      "sha256": "7c4bc71665a505b9bc6953df81ce982bc64bfd32a169142120195b47fdb161a0",
+      "sha256": "2bb85407b82b7a91dc5a4a9e06e910faffd48f047282c127174af6091c553f4c",
       "stage": "router",
       "used_by": [
         "pipeline",
@@ -43,7 +43,7 @@
         "references/icp-framework.md",
         "references/pain-vocabulary.md"
       ],
-      "sha256": "90b904d9caf3a16b088fb3e3e29abd2313609cd73b291a5c5c605237ee12890b",
+      "sha256": "b1e2b177c48ba9f9a8cf12e3e80fc0e4da151126cfd5b89357f3fbfef2674088",
       "stage": "profile",
       "used_by": [
         "pipeline",
@@ -60,7 +60,7 @@
         "references/query-patterns.md",
         "references/subreddit-selection.md"
       ],
-      "sha256": "fad1bb69461e69387cfd08fa52a2d413d463543f2ed3a82c74e1bbcba423485d",
+      "sha256": "dcab315847ef2a65348adfe1cfc6de0a5cabd335d33317a7bb5465585414e6c2",
       "stage": "search",
       "used_by": [
         "pipeline",
@@ -71,12 +71,12 @@
     {
       "description": "Scores a community post against a business profile with an explainable 100-point rubric, verbatim evidence and strict anti-inflation rules. Use for every candidate thread before drafting a reply.",
       "name": "lead-qualification",
-      "prompt_words": 533,
+      "prompt_words": 552,
       "references": [
         "references/rubric.md",
         "references/calibration-examples.md"
       ],
-      "sha256": "1903fbee241dc9ddf47a458ec0135b4fdf4fba845970f1f85efbaa2ba31c0d82",
+      "sha256": "e8255eee16dfed8e75edeceaa3d120eebcc4bf6907922ed39ca528f1672ad9ad",
       "stage": "qualify",
       "used_by": [
         "pipeline",
@@ -87,13 +87,13 @@
     {
       "description": "Chooses where to reply inside a thread (the post or one comment), how to join the conversation, and how to handle answers, doubts and removals. Use after a lead is qualified and before drafting.",
       "name": "thread-engagement",
-      "prompt_words": 401,
+      "prompt_words": 421,
       "references": [
         "references/target-selection.md",
         "references/reply-types.md",
         "references/handling-responses.md"
       ],
-      "sha256": "748ff477732d630f222b1f25b1fd761cbe6b1b8c8afd9d5818573f3ca41ac5e6",
+      "sha256": "d5d321fe2abf7f412f598dc8753c8d49beb6a6eb1f6c59178bf9d27ed2eefa3d",
       "stage": "engage",
       "used_by": [
         "pipeline",
@@ -104,7 +104,7 @@
     {
       "description": "Writes replies that read like a real member of the community, clones the owner's own voice from old comments, and states any product connection in a natural first-person sentence. Use for every reply draft.",
       "name": "community-copywriting",
-      "prompt_words": 538,
+      "prompt_words": 899,
       "references": [
         "references/reddit-voice.md",
         "references/voice-cloning.md",
@@ -115,13 +115,13 @@
         "references/banned-ai-tells.txt",
         "references/banned-user-list.txt"
       ],
-      "sha256": "38f826e8070f39071bdba6a9e4f16557e5b5ac7e255c1bfd8de233666c8039f6",
+      "sha256": "642f787f1759344fe76d2410a61e8cbefd583536954cfe0c048a0af753aaa1d9",
       "stage": "write",
       "used_by": [
         "pipeline",
         "mcp"
       ],
-      "version": "1.0.0"
+      "version": "1.1.0"
     },
     {
       "description": "Platform rules, hard posting limits, account warm-up and disclosure duties for Reddit, Hacker News, GitHub, Quora, X and the web. Use before any reply is approved, prepared for posting or posted.",
@@ -135,7 +135,7 @@
         "references/ftc-disclosure.md",
         "references/warmup-plan.md"
       ],
-      "sha256": "967fa15863870099f42c9bfc8150b7cd51eb54f9cccf4bbefe302f69b9fcf71f",
+      "sha256": "c5ee57e560b520c0e0038c30bd5903adac5c5219fecb132a70162648ec4b9e29",
       "stage": "safety",
       "used_by": [
         "pipeline",

@@ -16,6 +16,7 @@ import logging
 import re
 import threading
 import time
+import weakref
 from typing import Any, Callable, Dict, List, Optional
 
 from agent_reach.discovery import skillpack
@@ -85,8 +86,9 @@ class TeamEngine:
         self._svc = svc_getter
         self.toolbox = toolbox or Toolbox(svc_getter)
         self.verifier = verifier or Verifier(svc_getter)
-        self._locks: Dict[str, threading.Lock] = {}
-        self._ev_locks: Dict[str, threading.Lock] = {}
+        # Weak values: a lock disappears when no thread holds it, so finished directives leave nothing behind.
+        self._locks: "weakref.WeakValueDictionary[str, threading.Lock]" = weakref.WeakValueDictionary()
+        self._ev_locks: "weakref.WeakValueDictionary[str, threading.Lock]" = weakref.WeakValueDictionary()
         self._guard = threading.Lock()
         self._store: Optional[TeamStore] = None
         self._store_for: Any = None

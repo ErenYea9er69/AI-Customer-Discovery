@@ -35,17 +35,17 @@ POLICIES: Dict[str, PlatformPolicy] = {
     ),
     "github": PlatformPolicy(
         "github", "allowed", "api", 120,
-        "Short and practical. Stay on the issue's topic. State the affiliation early.",
+        "Short and practical. Name the version, the error or the command. Stay on the issue's topic. State the affiliation early.",
         "Comment only when the reply helps the issue.",
     ),
     "quora": PlatformPolicy(
         "quora", "allowed", "manual", 150,
-        "Plain paragraphs. State the affiliation in the answer.",
+        "Plain paragraphs. A little longer is fine, but open with the answer. State the affiliation in the answer.",
         "Manual posting only.",
     ),
     "twitter": PlatformPolicy(
         "twitter", "allowed", "manual", 45,
-        "One or two short sentences. No hashtags. Match the owner's timeline voice.",
+        "One or two short sentences. No hashtags, no emoji unless the owner uses them, no thread numbering. Match the owner's timeline voice.",
         "X forbids unsolicited automated replies. A person sends every reply.",
     ),
     "web": PlatformPolicy(

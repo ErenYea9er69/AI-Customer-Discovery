@@ -99,7 +99,7 @@ class InMemoryRateLimiter:
     """Sliding-window in-memory rate limiter to protect expensive/crawler endpoints from DoS."""
     def __init__(self, requests_per_minute: int = 60):
         self.rpm = requests_per_minute
-        self.history = defaultdict(list)
+        self.history: Dict[str, List[float]] = defaultdict(list)
 
     def check(self, key: str, max_requests: Optional[int] = None) -> bool:
         limit = max_requests or self.rpm

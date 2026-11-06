@@ -6,28 +6,34 @@ Why this matters. The FTC Endorsement Guides (16 CFR Part 255, updated 2023) tre
 
 ## Approved phrases
 
-- I built {product} for this exact problem, so I am biased.
+State the fact of the connection. An apology for bias is optional. Use it in about one reply in three, not in every reply. The code picks four phrases per reply and the model writes a close variant.
+
+- I built {product} for this exact problem.
 - I work on {product}, so weigh my view accordingly.
 - Full disclosure, I'm the founder of {product}.
-- I'm part of the {product} team, so I am not a neutral voice.
-- My team makes {product}, so I am biased here.
+- I'm on the {product} team.
+- My team makes {product}, so I'm biased here.
 - I make {product}, which is one option for this.
 - Bias warning: I run {product}.
 - I started {product} after hitting this problem myself.
 - Disclosure, I work at {product}.
 - I'm one of the people behind {product}, so keep my bias in mind.
-- I maintain {product}, so I am not neutral.
+- I maintain {product}.
 - I'm the solo dev behind {product}.
 - Heads up, {product} is mine.
-- Speaking as the builder of {product}, I would still start with the simple fix first.
-- I contribute to {product}, so I am not neutral.
-- I'm on the {product} team and I use it for exactly this.
-- I founded {product} two years ago, so I am biased.
-- Yes, I'm affiliated with {product}: I build it.
 - I wrote {product} for my own use first, then opened it to others.
 - I own {product}, so treat this as one opinion among many.
-- I'm the maker of {product}, so read this with my bias in mind.
-- Not a neutral take, I work on {product}.
+- I'm the maker of {product}.
+- I founded {product} two years ago.
+- I contribute to {product}, so I'm not neutral.
+- I'm on the {product} team and I use it for exactly this.
+- Yes, I'm affiliated with {product}: I build it.
+- I build {product} for a living.
+- {product} is my project, so I'm not a neutral voice.
+- I work on {product}. It's one option, and here's where it stops.
+- My day job is {product}.
+- I run the company behind {product}.
+- I write the code for {product}.
 
 ## Where to put the sentence
 

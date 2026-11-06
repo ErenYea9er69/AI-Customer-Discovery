@@ -1,6 +1,6 @@
 [project]
 name = "agent-reach"
-version = "3.2.0"
+version = "3.3.1"
 description = "A small AI company for customer discovery. You talk to the CEO. Specialists find people with the problem you solve in public communities and draft honest replies in your voice. Every output is verified. MCP server, CLI and API."
 readme = "README.md"
 license = {text = "MIT"}

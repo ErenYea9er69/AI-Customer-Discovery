@@ -86,9 +86,9 @@ def main() -> int:
     mpath = SKILLS / "manifest.json"
     text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
     if ns.write:
-        mpath.write_bytes(text.encode("utf-8"))
+        mpath.write_text(text, encoding="utf-8")
         print(f"wrote {mpath}")
-    elif not mpath.exists() or mpath.read_text(encoding="utf-8").replace("\r\n", "\n") != text:
+    elif not mpath.exists() or mpath.read_text(encoding="utf-8") != text:
         errors.append("skills/manifest.json is stale. Run: python scripts/validate_skills.py --write")
 
     if errors:

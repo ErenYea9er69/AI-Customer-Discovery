@@ -286,11 +286,11 @@ Pick one of these or write a close variant. Put it where it reads naturally, not
 {chr(10).join("- " + p for p in phrases)}
 </approved_affiliation_phrases>
 
-<examples>
+<examples note="Quality bar only. Do not copy their wording, their opening or their structure.">
 {shot_block}
 </examples>
 
-<recent_replies_do_not_reuse_wording>
+<recent_replies_do_not_reuse_wording note="Also change the opening and the ending. Do not repeat their order of ideas.">
 {prior}
 </recent_replies_do_not_reuse_wording>
 
@@ -302,7 +302,11 @@ Reply target: {t.target_kind}{(" by " + t.target_author) if t.target_author else
 Target text: {sanitize(t.target_text or lead.excerpt, 400)}
 </untrusted_thread>
 
-Write the replies for the reply target. {"product_aware must be an empty string at this pitch level." if level < 2 else "Write both versions."}
+Write the replies for the reply target.
+First pick the one detail in the target text that matters most (a number, a tool, a constraint) and react to it.
+Use only facts from product_facts, the target text and the owner's voice samples. If you have no real detail, write less.
+No greeting, no praise, no sympathy script, no not-X-but-Y frame, no lead-in line, no closing question, no sign-off, no dash of any kind.
+{"product_aware must be an empty string at this pitch level." if level < 2 else "Write both versions."}
 Output the JSON object only.
 """
 
@@ -325,7 +329,8 @@ Output the JSON object only.
             base
             + "\n<previous_output>\n" + json.dumps(previous, ensure_ascii=False) + "\n</previous_output>\n"
             + "<lint_issues>\n" + "\n".join(lines) + "\n</lint_issues>\n"
-            + "Fix every issue. Keep the rest of the text. Return the same JSON object. "
+            + "Fix every issue by rewriting the flagged sentence in plain words. A synonym for a banned word keeps the tell, so change the sentence. "
+            "Keep the rest of the text. Return the same JSON object. "
             "Fix only the versions listed, and copy the other version unchanged.\n"
         )
 

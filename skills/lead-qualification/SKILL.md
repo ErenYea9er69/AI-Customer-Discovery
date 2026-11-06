@@ -28,7 +28,7 @@ Step 3: score five parts. Use whole numbers and never exceed a maximum.
 - reply_opportunity, max 10. Based on age, comment count and whether a person can still comment. 10 means under 7 days, open, under 30 comments. 6 means under 90 days. 3 means unknown. Subtract 3 for 80 or more comments.
 Step 4: copy one evidence_quote word for word from the post, at most 200 characters. If you cannot find a quote that shows the problem, the post is not a lead.
 Step 5: write customer_problem as one plain sentence grounded in the post. No guesses about the person.
-Step 6: write reason as one sentence on why the person fits or does not.
+Step 6: write reason as one plain sentence: one fact from the post, then the conclusion. No praise words, no hedges, no "seems to". The owner reads this sentence to decide whether to act.
 
 Total is the sum of the five parts (max 100). The system computes the class from your numbers:
 - competitor_intel: a competitor is named, buying_intent is below 8 and problem_fit is below 15.

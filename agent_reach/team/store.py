@@ -56,6 +56,8 @@ class TeamStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_team_tasks_directive ON team_tasks (directive_id);
                 CREATE INDEX IF NOT EXISTS idx_team_events_directive ON team_events (directive_id);
+                CREATE INDEX IF NOT EXISTS idx_team_tasks_status ON team_tasks (status);
+                CREATE INDEX IF NOT EXISTS idx_team_directives_created ON team_directives (created_at);
                 """
             )
 

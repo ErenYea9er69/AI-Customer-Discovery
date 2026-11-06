@@ -9,6 +9,7 @@ in the pipeline and in the MCP server, so both apply the same gate.
 
 from __future__ import annotations
 
+import functools
 import re
 import statistics
 from collections import Counter
@@ -38,8 +39,10 @@ _MD_BOLD = re.compile(r"\*\*[^*\n]+\*\*|__[^_\n]+__")
 _MD_CODE = re.compile(r"`[^`\n]+`|```")
 _MD_TABLE = re.compile(r"^\s*\|.+\|\s*$", re.M)
 _FLATTERY = re.compile(
-    r"^\s*(?:(?:great|good|excellent|awesome|fantastic|interesting|fair)\s+(?:question|point|post)|"
-    r"thanks? for (?:asking|sharing|posting)|absolutely[!,.]|definitely[!,.])",
+    r"^\s*(?:(?:great|good|excellent|awesome|fantastic|interesting|fair|solid|smart)\s+(?:question|point|post|call|thinking)|"
+    r"thanks? for (?:asking|sharing|posting|bringing)|absolutely[!,.]|definitely[!,.]|certainly[!,.]|of course[!,.]|sure[!,]|"
+    r"love (?:this|that)|this is a (?:great|good|common|really|very|fantastic)|you(?:'re| are) (?:absolutely|totally|completely) right|"
+    r"i(?:'d| would) (?:be happy|love|be glad) to|what a (?:great|good|fantastic))",
     re.I,
 )
 _AFFIL_PATTERNS = [
@@ -50,6 +53,8 @@ _AFFIL_PATTERNS = [
         r"affiliated|part of|maker|creator|dev|developer)\b",
         re.I,
     ),
+    re.compile(r"\b(?:i'm|i am|im)\s+(?:on|in|with)\s+(?:the\s+)?[^.!?\n]{0,40}\bteam\b", re.I),
+    re.compile(r"\bmy (?:day )?(?:job|work|role)\b", re.I),
     re.compile(r"\b(?:is|'s) mine\b", re.I),
     re.compile(r"\b(?:disclosure|full disclosure|bias warning|heads up)\b[^.\n]{0,40}\b(?:i|my|mine)\b", re.I),
     re.compile(r"\bmy (?:team|company|startup|project|tool|app)\b", re.I),
@@ -66,6 +71,68 @@ _BAD_DISCLOSURE = [
 _CURLY = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"', " ": " "})
 
 
+# A model told "no em dash" often writes a spaced hyphen instead. It reads the same way.
+_SPACED_DASH = re.compile(r"(?<=[A-Za-z0-9,.)\"'])\s+(?:-{1,2}|―)\s+(?=[A-Za-z\"'(])")
+_GREETING = re.compile(r"^\s*(?:hi|hey|hello|hiya|yo|greetings|good (?:morning|afternoon|evening))\b[\s,!.]", re.I)
+
+# Sentence frames that read as machine written. Each pattern runs on the reply text.
+_SLOP_FRAMES = [
+    (
+        "contrast_frame",
+        re.compile(
+            r"\bnot (?:just|only|merely|simply)\b[^.!?\n]{0,70}\b(?:but|it's|it is)\b"
+            r"|\b(?:it|this|that|which)(?:'s| is| isn't| is not)\s+not\s+(?:about\s+)?[^.!?\n]{1,60}[,;]\s*(?:it's|it is|but)\b"
+            r"|\bisn't\s+(?:about\s+)?[^.!?\n]{1,60}[,;]\s*(?:it's|it is)\b"
+            r"|\bnot because\b[^.!?\n]{1,70}[,;]\s*but because\b",
+            re.I,
+        ),
+        "Remove the not-X-but-Y frame. State the point directly.",
+    ),
+    (
+        "lead_in",
+        re.compile(
+            r"(?:^|[.!?]\s+|\n)(?:here(?:'s| is| are)\s+(?:the|why|what|how|a|my|some)\b"
+            r"|the (?:catch|truth|reality|secret|trick|kicker|real (?:issue|problem|question))\s*(?:is|:)"
+            r"|the thing is\b|short version\s*:|pro tip\b|quick tip\b|bonus(?: tip)?\s*:|spoiler\s*:|key (?:point|takeaway)\s*:"
+            r"|let'?s (?:break|dive|unpack|walk|be honest|face it|get started|talk))",
+            re.I,
+        ),
+        "Remove the lead-in line and say the point. Do not announce what comes next.",
+    ),
+    (
+        "empathy_script",
+        re.compile(
+            r"\b(?:i (?:completely |totally |fully )?(?:understand|hear you|feel you)\b"
+            r"|i'm sorry (?:to hear|you're|you are)"
+            r"|that sounds (?:really |so |incredibly |super )?(?:frustrating|tough|stressful|difficult|hard|rough|painful)"
+            r"|(?:totally|completely|perfectly|entirely) (?:understandable|valid|normal|natural)"
+            r"|valid (?:concern|point|question|feeling)"
+            r"|it's (?:totally |completely )?(?:understandable|natural|normal) to"
+            r"|you(?:'re| are) not alone)",
+            re.I,
+        ),
+        "Cut the scripted sympathy. If you share the experience, say what happened to you.",
+    ),
+    (
+        "closing_question",
+        re.compile(
+            r"(?:what do you think|what are your thoughts|thoughts\?|have you (?:tried|considered)\b"
+            r"|does that (?:help|make sense|work)|how does that sound|curious (?:to hear|what|how)|would love to hear"
+            r"|any (?:other )?(?:questions|thoughts))[^.!?\n]*\?\s*$",
+            re.I,
+        ),
+        "End on the last real point. A closing question that invites chat reads as engagement bait.",
+    ),
+]
+
+_SERIAL_TRIPLE = re.compile(r"\b[\w'-]+(?: [\w'-]+){0,3}, [\w'-]+(?: [\w'-]+){0,3}, (?:and|or) [\w'-]+", re.I)
+_MIRROR_CONTRAST = re.compile(r"\b[a-z']+, not (?:a |an |the |just )?[a-z']+\b", re.I)
+_HEDGE_WORDS = re.compile(
+    r"\b(?:might|perhaps|possibly|somewhat|arguably|seems? to|tends? to|in some cases|to some extent|generally|typically|often)\b",
+    re.I,
+)
+
+
 # ── Text helpers ──────────────────────────────────────────────────────────────
 
 def words_of(text: str) -> List[str]:
@@ -80,6 +147,7 @@ def normalize_text(text: str) -> str:
     """Fix mechanical slips: dashes, curly quotes, markdown marks. Never changes meaning."""
     out = (text or "").translate(_CURLY)
     out = _DASH_RE.sub(",", out)
+    out = _SPACED_DASH.sub(", ", out)
     out = re.sub(r"\s*,\s*,", ",", out)
     out = re.sub(r"\s+,", ",", out)
     out = re.sub(r"\*\*([^*\n]+)\*\*", r"\1", out)
@@ -238,8 +306,30 @@ class LintReport:
         self.issues.append(LintIssue(code, severity, message))
 
 
+def _word_forms(word: str) -> List[str]:
+    """The base word plus its regular inflections, so "unlock" also catches "unlocked" and "unlocking"."""
+    forms = {word}
+    if len(word) < 5 or not word.isalpha():
+        return [word]
+    if word.endswith("e"):
+        forms |= {word + "s", word + "d", word[:-1] + "ing"}
+    elif word.endswith("y") and word[-2] not in "aeiou":
+        forms |= {word[:-1] + "ies", word[:-1] + "ied", word + "ing"}
+    else:
+        forms |= {word + "s", word + "es", word + "ed", word + "ing", word + "ly"}
+    if word.endswith("le"):
+        forms.add(word[:-1] + "y")
+    return sorted(forms, key=len, reverse=True)
+
+
+@functools.lru_cache(maxsize=2048)
 def _term_regex(term: str) -> "re.Pattern[str]":
-    return re.compile(r"(?<![\w'])" + r"\s+".join(re.escape(p) for p in term.split()) + r"(?![\w'])", re.I)
+    parts = term.split()
+    if len(parts) == 1:
+        body = "(?:" + "|".join(re.escape(f) for f in _word_forms(parts[0])) + ")"
+    else:
+        body = r"\s+".join(re.escape(p) for p in parts)
+    return re.compile(r"(?<![\w'])" + body + r"(?![\w'])", re.I)
 
 
 def find_terms(text: str, terms: Iterable[str]) -> List[str]:
@@ -323,7 +413,7 @@ def lint_reply(
         avoid = []
     hits = find_terms(body, hard)
     if hits:
-        report._add("banned_word", "error", "Remove or rephrase: " + ", ".join(sorted(set(hits))) + ".")
+        report._add("banned_word", "error", "Remove: " + ", ".join(sorted(set(hits))) + ". Rewrite the whole sentence in plain words. A synonym keeps the same tell.")
     avoid_hits = count_terms(body, avoid)
     if avoid_hits > prefs.avoid_budget:
         used = ", ".join(sorted(set(find_terms(body, avoid))))
@@ -341,8 +431,17 @@ def lint_reply(
     emoji_ok = prefs.allow_emoji if prefs.allow_emoji is not None else (card.get("emoji_rate", 0) or 0) > 0
     if _EMOJI_RE.search(body) and not emoji_ok:
         report._add("emoji", "error", "Remove emoji. The owner's voice does not use them.")
+    if _SPACED_DASH.search(body):
+        report._add("dash", "error", "Replace the spaced hyphen with a comma, a period or parentheses. It reads as a dash.")
     if _FLATTERY.search(body):
         report._add("flattery_opener", "error", "Start with the answer, not with praise or thanks.")
+    opener_words = " ".join(str(o).lower() for o in (card.get("top_openers") or []))
+    first_word = (words_of(body) or [""])[0].lower()
+    if _GREETING.search(body) and first_word not in opener_words.split():
+        report._add("greeting_opener", "error", "Start with the answer. No greeting.")
+    for code, pattern, message in _SLOP_FRAMES:
+        if pattern.search(body.translate(_CURLY)):
+            report._add(code, "error", message)
     if body.count("!") > 1 and (card.get("exclamation_rate", 0) or 0) == 0:
         report._add("exclamations", "warn", "Use at most one exclamation mark.")
 
@@ -376,7 +475,33 @@ def lint_reply(
     if len(sents) >= 5:
         spread = _std([len(words_of(s)) for s in sents])
         if spread < 3.0:
-            report._add("uniform_sentences", "warn", "Sentences are all about the same length. Mix short and long ones.")
+            report._add("uniform_sentences", "warn", "Sentences are all about the same length. Let length follow the idea.")
+    if len(sents) >= 4:
+        starts = Counter((words_of(s) or [""])[0].lower() for s in sents)
+        starts.pop("i", None)
+        word, count = starts.most_common(1)[0] if starts else ("", 0)
+        if count >= 3:
+            report._add("repeated_openers", "warn", f"{count} sentences start with '{word}'. Change how some of them begin.")
+    if len(_SERIAL_TRIPLE.findall(body)) >= 2:
+        report._add("stacked_triples", "warn", "Two lists of three items. Give one or two items where the topic allows it.")
+    if len(_MIRROR_CONTRAST.findall(body)) >= 2:
+        report._add("mirror_contrast", "warn", "Two 'X, not Y' contrasts. Keep the one that carries the point.")
+    if len(_HEDGE_WORDS.findall(body)) >= 3:
+        report._add("hedge_stack", "warn", "Three or more hedges. Hedge once, where you are unsure.")
+    if body.count(";") >= 2:
+        report._add("semicolons", "warn", "Semicolons are rare in forum comments. Use periods.")
+    contraction_rate = card.get("contraction_rate")
+    if len(toks) >= 40 and not _CONTRACTION_RE.search(body) and (contraction_rate is None or contraction_rate >= 1):
+        report._add("stiff_register", "warn", "No contractions in a long reply. People write don't and it's.")
+    lowercase_voice = (card.get("lowercase_start_ratio") or 0) > 0.6
+    if len(toks) >= 40 and not lowercase_voice:
+        has_digit = bool(re.search(r"\d|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|fifty|hundred|dozen)\b", body, re.I))
+        has_name = bool(re.search(r"(?<=[a-z,] )[A-Z][A-Za-z0-9]{2,}", body)) or bool(_URL_RE.search(body))
+        if not has_digit and not has_name:
+            report._add("no_specific_detail", "warn", "Add one concrete detail from the thread or the product facts: a number, a tool, a step.")
+    if kind == "product_aware" and product_name and sents:
+        if count_product_mentions(sents[0], product_name):
+            report._add("product_first_sentence", "warn", "The product appears in the first sentence. Answer first, then mention it.")
 
     # Near duplicates of earlier replies
     for old in previous:

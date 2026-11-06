@@ -162,3 +162,83 @@ avoid|numerous
 avoid|utilize
 avoid|facilitate
 avoid|enhance
+
+# Added in 3.3.0: sales jargon, scripted sign-offs, filler openers. Hard terms never fit a plain forum reply.
+hard|aligns with
+hard|align with
+hard|resonate
+hard|resonates
+hard|invaluable
+hard|unwavering
+hard|effortless
+hard|effortlessly
+hard|hassle-free
+hard|tailored
+hard|curated
+hard|bolster
+hard|garner
+hard|encompass
+hard|encompasses
+hard|interplay
+hard|pain points
+hard|value proposition
+hard|touch base
+hard|circle back
+hard|move the needle
+hard|double down
+hard|low-hanging fruit
+hard|first and foremost
+hard|last but not least
+hard|needless to say
+hard|it goes without saying
+hard|rest assured
+hard|at its core
+hard|good luck
+hard|best of luck
+hard|hang in there
+hard|you've got this
+hard|you got this
+hard|reach out
+hard|let me know
+hard|glad to help
+hard|happy to assist
+avoid|tip of the iceberg
+avoid|game plan
+hard|a wide range of
+hard|a wide variety of
+hard|from beginners to
+avoid|in order to
+avoid|comes down to
+avoid|when it comes to
+avoid|sweet spot
+hard|no-brainer
+hard|must-have
+hard|one-stop
+hard|all-in-one
+hard|end-to-end
+hard|mission-critical
+hard|best-in-class
+hard|world-class
+hard|industry-leading
+hard|next-generation
+hard|turnkey
+
+# Added in 3.3.0: intensifiers and consultant words. Budgeted, not banned.
+avoid|solution
+avoid|solutions
+avoid|platform
+avoid|workflow
+avoid|ecosystem
+avoid|offering
+avoid|scalable
+avoid|impactful
+avoid|actionable
+avoid|absolutely
+avoid|definitely
+avoid|certainly
+avoid|honestly
+avoid|truly
+avoid|genuinely
+avoid|incredibly
+avoid|extremely
+avoid|highly

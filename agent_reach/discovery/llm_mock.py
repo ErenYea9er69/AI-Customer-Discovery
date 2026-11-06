@@ -181,7 +181,7 @@ def mock_completion(prompt: str, system_prompt: Optional[str] = None) -> str:
         return json.dumps({
             "customer_problem": "Our team wastes hours every Monday manually deduplicating GitHub bug reports and prioritizing sprint tickets.",
             "pain_point_category": "Backlog Inefficiency",
-            "profile_match": "High match - Engineering Lead managing active GitHub repo",
+            "profile_match": "High match: Engineering Lead managing active GitHub repo",
             "competitor_mentioned": "Jira and GitHub Projects",
             "purchase_intent": "High",
             "urgency": "High",

@@ -8,7 +8,9 @@ import io
 import json
 import os
 import sqlite3
+import threading
 import time
+from collections import OrderedDict
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
@@ -24,6 +26,11 @@ from agent_reach.discovery.models import (
 )
 from agent_reach.discovery.thread_check import canonical_url
 
+# Optional. AGENT_REACH_DB_SYNC=NORMAL trades durability after a power cut for faster writes.
+_SYNC_MODE = (os.getenv("AGENT_REACH_DB_SYNC") or "").strip().upper()
+if _SYNC_MODE not in ("NORMAL", "OFF", "EXTRA"):
+    _SYNC_MODE = ""
+
 _SECRET_FIELDS = {"reddit_client_id", "reddit_client_secret", "reddit_username", "reddit_password", "github_token"}
 
 DEFAULT_DB_PATH = Path(
@@ -31,6 +38,46 @@ DEFAULT_DB_PATH = Path(
     or (Path.home() / ".agent-reach" / "discovery.db")
 )
 
+
+
+# One idle connection per database file. SQLite checkpoints and deletes the WAL file whenever the
+# last connection closes. Every storage call opens and closes its own connection, so without an
+# idle one each call paid for a checkpoint. The idle connection runs no query after it opens.
+_ANCHOR_LIMIT = 8
+_anchors: "OrderedDict[str, tuple]" = OrderedDict()   # path -> (connection, inode, pid)
+_anchor_lock = threading.Lock()
+
+
+def _hold_anchor(db_path: Path) -> None:
+    key = str(db_path)
+    try:
+        inode = os.stat(key).st_ino
+    except OSError:
+        return
+    with _anchor_lock:
+        held = _anchors.get(key)
+        if held and held[1] == inode and held[2] == os.getpid():
+            _anchors.move_to_end(key)
+            return
+        if held:
+            _drop_anchor(key)
+        try:
+            conn = sqlite3.connect(key, timeout=30, check_same_thread=False)
+            conn.execute("SELECT 1").fetchall()
+        except sqlite3.Error:
+            return
+        _anchors[key] = (conn, inode, os.getpid())
+        while len(_anchors) > _ANCHOR_LIMIT:
+            _drop_anchor(next(iter(_anchors)))
+
+
+def _drop_anchor(key: str) -> None:
+    held = _anchors.pop(key, None)
+    if held and held[2] == os.getpid():   # a forked child never closes its parent's handle
+        try:
+            held[0].close()
+        except sqlite3.Error:
+            pass
 
 
 class DiscoveryStorage:
@@ -46,6 +93,8 @@ class DiscoveryStorage:
         conn = sqlite3.connect(str(self.db_path), timeout=30)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA busy_timeout = 30000")
+        if _SYNC_MODE:
+            conn.execute(f"PRAGMA synchronous = {_SYNC_MODE}")
         try:
             yield conn
             conn.commit()
@@ -147,6 +196,7 @@ class DiscoveryStorage:
                 """
             )
 
+        _hold_anchor(self.db_path)
         self._migrate()
 
         # The settings table holds API keys. Keep the file private to this user.
@@ -154,6 +204,11 @@ class DiscoveryStorage:
             os.chmod(self.db_path, 0o600)
         except OSError:
             pass
+
+    def close(self) -> None:
+        """Release the idle connection for this database. Later calls still work and open a new one."""
+        with _anchor_lock:
+            _drop_anchor(str(self.db_path))
 
     def _migrate(self) -> None:
         """Add columns that older databases lack. Safe to run on every start."""
@@ -163,6 +218,11 @@ class DiscoveryStorage:
                 conn.execute("ALTER TABLE posting_logs ADD COLUMN kind TEXT DEFAULT ''")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_replies_lead ON replies (lead_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_posting_platform ON posting_logs (platform, status, created_at)")
+            # Newest-first lists read the index and stop at the limit. Without these, each list scanned the whole table.
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_discovered_created ON discovered_items (created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_discovered_platform_created ON discovered_items (platform, created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_replies_created ON replies (created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_profiles_updated ON business_profiles (updated_at)")
         self._scrub_stored_secrets()
 
     def _scrub_stored_secrets(self) -> None:
@@ -605,7 +665,9 @@ class DiscoveryStorage:
         with self._connection() as conn:
             row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
             if row:
-                return json.loads(row["value"])
+                raw = row["value"]
+                # The column type has numeric affinity, so a stored number comes back as a number, not as text.
+                return json.loads(raw) if isinstance(raw, (str, bytes)) else raw
         return default
 
     def set_setting(self, key: str, value: Any) -> None:

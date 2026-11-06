@@ -19,7 +19,7 @@ You choose where a reply goes and how it joins the conversation. A reply that la
 
 Read the whole thread before you pick a target: the post, the top comments, the comments that ask questions, and any follow-up from the author.
 
-Pick one target with a reason.
+Pick one target with a reason. Write the reason as one plain sentence that names what the author said and why it fits. No praise words.
 1. The original post, when the author asks a question and no comment answers the exact constraint.
 2. A comment that asks for a tool, a method or a link, when the question is unanswered or answered badly. Reply under that comment.
 3. A follow-up from the author that asks for detail ("does it work with Stripe?"). Reply under it.

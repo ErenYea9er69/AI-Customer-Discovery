@@ -97,16 +97,17 @@ class LLMClient:
         session: Optional[requests.Session] = None,
     ):
         chosen = (provider or os.getenv("LLM_PROVIDER") or "").strip().lower()
+        cfg_box: List[Any] = []   # the config file is read at most once per client
         if not chosen:
             for name in ("anthropic", "openai", "gemini", "groq", "deepseek"):
-                if self._resolve_api_key(name):
+                if self._resolve_api_key(name, cfg_box):
                     chosen = name
                     break
         self.provider = chosen
         self.tier = tier if tier in ("fast", "smart") else "smart"
         self.api_key = api_key or None
         if not self.api_key and self.provider and self.provider != "mock":
-            self.api_key = self._resolve_api_key(self.provider) or os.getenv("LLM_API_KEY")
+            self.api_key = self._resolve_api_key(self.provider, cfg_box) or os.getenv("LLM_API_KEY")
         self._pinned = model or os.getenv(f"LLM_MODEL_{self.tier.upper()}") or os.getenv("LLM_MODEL")
         self._working: Dict[str, str] = {}
         self.session = session or requests.Session()
@@ -116,7 +117,7 @@ class LLMClient:
     # ── Setup ──
 
     @staticmethod
-    def _resolve_api_key(provider: str) -> Optional[str]:
+    def _resolve_api_key(provider: str, cfg_box: Optional[List[Any]] = None) -> Optional[str]:
         if provider == "gemini":
             val = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
             if val:
@@ -128,7 +129,11 @@ class LLMClient:
         try:
             from agent_reach.config import Config
 
-            cfg = Config(read_only=True)
+            if cfg_box is None:
+                cfg_box = []
+            if not cfg_box:
+                cfg_box.append(Config(read_only=True))
+            cfg = cfg_box[0]
             return cfg.get(f"{provider}_api_key") or cfg.get(f"{provider}-key")
         except Exception:
             return None
